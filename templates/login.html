@@ -1,30 +1,35 @@
 {% extends "base.html" %}
-{% block title %}Sign In — PerfReview{% endblock %}
+{% block title %}Sign In — NFORCE ONE{% endblock %}
 {% block content %}
 <div class="login-page">
-  <div class="login-card">
+
+  <div class="login-center">
+
     <div class="login-brand">
-      <h1 class="serif">PerfReview</h1>
-      <p>Team performance, thoughtfully tracked.</p>
+      <div class="brand-logo">NFORCE ONE</div>
+      <p class="brand-sub">Let's do it</p>
     </div>
+
     {% with messages = get_flashed_messages() %}
       {% if messages %}
         {% for m in messages %}
-          <div class="flash">{{ m }}</div>
+          <div class="login-flash">{{ m }}</div>
         {% endfor %}
       {% endif %}
     {% endwith %}
+
     <form method="POST" class="login-form">
       <div class="field">
         <label for="username">Username</label>
-        <input id="username" name="username" type="text" autocomplete="username" placeholder="your username" required />
+        <input id="username" name="username" type="text" autocomplete="username" placeholder="Enter your username" required />
       </div>
       <div class="field">
         <label for="password">Password</label>
         <input id="password" name="password" type="password" autocomplete="current-password" placeholder="••••••••" required />
       </div>
-      <button type="submit" class="btn-primary full-width">Sign In</button>
+      <button type="submit" class="btn-signin">Sign In</button>
     </form>
+
   </div>
 </div>
 {% endblock %}

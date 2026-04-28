@@ -2,12 +2,12 @@ import os
 import json
 import time
 import gspread
+from dotenv import load_dotenv
 from google.oauth2.service_account import Credentials
 from datetime import datetime
-from flask import (
-    Flask, render_template, request, redirect,
-    url_for, session, flash, jsonify,
-)
+from flask import Flask, render_template, request, redirect, url_for, session, flash, jsonify
+
+load_dotenv()  # reads .env locally; ignored on Vercel (uses dashboard env vars)
 
 app = Flask(__name__)
 app.secret_key = os.environ.get("SECRET_KEY", "perfreview_secret_2024")
@@ -63,15 +63,16 @@ def bust_cache(*keys):
 # To remove:        delete the line
 # Usernames are case-insensitive (always stored lowercase)
 USERS = {
-    "chandra":   {"password": "pass123",    "role": "lead"},
-    "uma":       {"password": "pass123",    "role": "lead"},
-    "vinoth":    {"password": "pass123",    "role": "lead"},
-    "tejas":     {"password": "pass123",    "role": "lead"},
-    "suresh":    {"password": "pass123",    "role": "lead"},
-    "aishwarya": {"password": "pass123",    "role": "lead"},
-    "dheeraj":   {"password": "pass123",    "role": "lead"},
-    "drushya":   {"password": "Nforce@124", "role": "lead"},
-    "naveen":    {"password": "pass123",    "role": "director"},
+    "Chandra":   {"password": "pass123",    "role": "lead"},
+    "Uma":       {"password": "pass123",    "role": "lead"},
+    "Vinoth":    {"password": "pass123",    "role": "lead"},
+    "Tejas":     {"password": "pass123",    "role": "lead"},
+    "Suresh":    {"password": "pass123",    "role": "lead"},
+    "Aishwarya": {"password": "pass123",    "role": "lead"},
+    "Dheeraj":   {"password": "pass123",    "role": "lead"},
+    "Drushya":   {"password": "pass123",    "role": "lead"},
+    "NaveenR":   {"password": "pass123",    "role": "lead"},
+    "Naveen":    {"password": "pass123",    "role": "director"},
 }
 LEADS = [u for u, d in USERS.items() if d["role"] == "lead"]
 
@@ -116,6 +117,7 @@ def _init_sheets():
             ("suresh",    "pass123", "lead"),
             ("aishwarya", "pass123", "lead"),
             ("dheeraj",   "pass123", "lead"),
+            ("drushya",   "pass123", "lead"),
             ("naveen",    "pass123", "director"),
         ]
         for row in defaults:
@@ -154,7 +156,7 @@ def load_org():
         for row in rows:
             rec = _zip(headers, row)
             emp  = rec.get("employee", "").strip()
-            lead = rec.get("lead", "").strip()
+            lead = rec.get("lead", "").strip().lower()
             role = rec.get("role", "Employee").strip() or "Employee"
             if emp and lead:
                 emp_info[emp] = {"lead": lead, "role": role}
@@ -244,7 +246,7 @@ def save_review(lead, emp_name, data):
 
     for i, row in enumerate(all_data[1:], start=2):
         if row and row[0] == emp_name:
-            ws.update(f"A{i}:{end_col}{i}", [values])
+            ws.update([values], f"A{i}:{end_col}{i}")
             return
 
     ws.append_row(values)  # new employee row
@@ -284,11 +286,13 @@ def login():
     if "lead" in session:
         return redirect(url_for("dashboard"))
     if request.method == "POST":
-        username = request.form.get("username", "").strip().lower()
+        username_input = request.form.get("username", "").strip()
         password = request.form.get("password", "").strip()
-        user = USERS.get(username)
+        # Case-insensitive username match
+        matched_key = next((k for k in USERS if k.lower() == username_input.lower()), None)
+        user = USERS.get(matched_key) if matched_key else None
         if user and user["password"] == password:
-            session["lead"] = username
+            session["lead"] = matched_key.lower()
             session["role"] = user["role"]
             return redirect(url_for("dashboard"))
         flash("Invalid credentials. Please try again.")
