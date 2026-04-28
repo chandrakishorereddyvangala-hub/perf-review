@@ -1,5 +1,6 @@
 import os
 import json
+import time
 import gspread
 from google.oauth2.service_account import Credentials
 from datetime import datetime
@@ -12,51 +13,51 @@ app = Flask(__name__)
 app.secret_key = os.environ.get("SECRET_KEY", "perfreview_secret_2024")
 
 # ── Google Sheets config ─────────────────────────────────────────────────────
-# Set these as environment variables in Railway (or locally in .env)
 SPREADSHEET_ID = os.environ.get("SPREADSHEET_ID", "")
 SCOPES = ["https://www.googleapis.com/auth/spreadsheets"]
 
 _gc = None
 
 def get_client():
-    """Return a cached gspread client, initialising once per process."""
     global _gc
     if _gc is not None:
         return _gc
     raw = os.environ.get("GOOGLE_CREDENTIALS", "")
     if raw:
-        # Production: credentials stored as env-var JSON string
         info = json.loads(raw)
         creds = Credentials.from_service_account_info(info, scopes=SCOPES)
         _gc = gspread.authorize(creds)
     elif os.path.exists("credentials.json"):
-        # Local dev: credentials file on disk
         _gc = gspread.service_account(filename="credentials.json")
     else:
-        raise RuntimeError(
-            "No Google credentials found. "
-            "Set GOOGLE_CREDENTIALS env var or place credentials.json in the project root."
-        )
+        raise RuntimeError("No Google credentials found.")
     return _gc
-
 
 def get_spreadsheet():
     return get_client().open_by_key(SPREADSHEET_ID)
 
 
-# ── Users & constants ────────────────────────────────────────────────────────
-USERS = {
-    "chandra":   {"password": "pass123", "role": "lead"},
-    "uma":       {"password": "pass123", "role": "lead"},
-    "vinoth":    {"password": "pass123", "role": "lead"},
-    "tejas":     {"password": "pass123", "role": "lead"},
-    "suresh":    {"password": "pass123", "role": "lead"},
-    "aishwarya": {"password": "pass123", "role": "lead"},
-    "dheeraj":   {"password": "pass123", "role": "lead"},
-    "naveen":    {"password": "pass123", "role": "director"},
-}
-LEADS = [u for u, d in USERS.items() if d["role"] == "lead"]
+# ── Simple 30-second in-memory cache ─────────────────────────────────────────
+# Keeps the app snappy without hammering the Sheets API on every page load.
+# Any change you make in the spreadsheet reflects in the app within 30 seconds.
+_cache: dict = {}
+CACHE_TTL = 30  # seconds
 
+def _cached(key, loader_fn):
+    now = time.time()
+    entry = _cache.get(key)
+    if entry and (now - entry["ts"]) < CACHE_TTL:
+        return entry["data"]
+    data = loader_fn()
+    _cache[key] = {"data": data, "ts": now}
+    return data
+
+def bust_cache(*keys):
+    for k in keys:
+        _cache.pop(k, None)
+
+
+# ── Constants ─────────────────────────────────────────────────────────────────
 RATING_CATEGORIES = [
     "Technical Skills", "Communication",
     "Teamwork", "Productivity", "Leadership",
@@ -67,67 +68,47 @@ TALKING_POINTS = [
     "Meets deadlines reliably",      "Communicates blockers early",
     "Shows initiative",              "Supports team members",
 ]
-
 REV_HEADERS = (
     ["employee", "status"]
     + RATING_CATEGORIES
     + ["notes", "comments", "shared_with"]
 )
 
-ORG_PLACEHOLDERS = [
-    ("chandra_r1",   "chandra",   "Developer"),
-    ("chandra_r2",   "chandra",   "Analyst"),
-    ("chandra_r3",   "chandra",   "QA Engineer"),
-    ("uma_r1",       "uma",       "Frontend Developer"),
-    ("uma_r2",       "uma",       "UX Designer"),
-    ("uma_r3",       "uma",       "Tester"),
-    ("vinoth_r1",    "vinoth",    "Backend Developer"),
-    ("vinoth_r2",    "vinoth",    "DevOps Engineer"),
-    ("vinoth_r3",    "vinoth",    "Systems Analyst"),
-    ("tejas_r1",     "tejas",     "Mobile Developer"),
-    ("tejas_r2",     "tejas",     "Cloud Architect"),
-    ("tejas_r3",     "tejas",     "Full Stack Developer"),
-    ("suresh_r1",    "suresh",    "ML Engineer"),
-    ("suresh_r2",    "suresh",    "Data Scientist"),
-    ("suresh_r3",    "suresh",    "BI Analyst"),
-    ("aishwarya_r1", "aishwarya", "Security Engineer"),
-    ("aishwarya_r2", "aishwarya", "Product Manager"),
-    ("aishwarya_r3", "aishwarya", "Scrum Master"),
-    ("dheeraj_r1",   "dheeraj",  "Infrastructure Engineer"),
-    ("dheeraj_r2",   "dheeraj",  "Technical Writer"),
-    ("dheeraj_r3",   "dheeraj",  "Support Engineer"),
-]
 
-
-# ── Sheet initialisation (runs once on first request) ────────────────────────
+# ── Sheet initialisation (once on first request) ──────────────────────────────
 _sheet_ready = False
 
 def _init_sheets():
-    """Create sheet tabs and seed placeholder data if they don't exist yet."""
     global _sheet_ready
     if _sheet_ready:
         return
     sh = get_spreadsheet()
     existing = {ws.title for ws in sh.worksheets()}
 
-    # org tab
+    # users tab — the master list of logins & roles
+    if "users" not in existing:
+        ws = sh.add_worksheet("users", rows=100, cols=4)
+        time.sleep(0.8)
+        ws.append_row(["username", "password", "role"])
+        defaults = [
+            ("chandra",   "pass123", "lead"),
+            ("uma",       "pass123", "lead"),
+            ("vinoth",    "pass123", "lead"),
+            ("tejas",     "pass123", "lead"),
+            ("suresh",    "pass123", "lead"),
+            ("aishwarya", "pass123", "lead"),
+            ("dheeraj",   "pass123", "lead"),
+            ("naveen",    "pass123", "director"),
+        ]
+        for row in defaults:
+            ws.append_row(list(row))
+            time.sleep(0.2)
+
+    # org tab — resource → lead mapping
     if "org" not in existing:
         ws = sh.add_worksheet("org", rows=200, cols=5)
+        time.sleep(0.8)
         ws.append_row(["employee", "lead", "role"])
-        for row in ORG_PLACEHOLDERS:
-            ws.append_row(list(row))
-
-    # per-lead tabs
-    for lead in LEADS:
-        if lead not in existing:
-            ws = sh.add_worksheet(lead, rows=200, cols=len(REV_HEADERS))
-            ws.append_row(REV_HEADERS)
-            # seed placeholder employee rows for this lead
-            for emp, emp_lead, _ in ORG_PLACEHOLDERS:
-                if emp_lead == lead:
-                    ws.append_row(
-                        [emp, "Pending"] + [0] * len(RATING_CATEGORIES) + ["", "[]", "[]"]
-                    )
 
     _sheet_ready = True
 
@@ -136,23 +117,73 @@ def _init_sheets():
 def ensure_sheets():
     try:
         _init_sheets()
-    except Exception as e:
-        # Don't crash on auth errors for static assets
+    except Exception:
         pass
 
 
+# ── Dynamic loaders (everything comes from the sheet) ────────────────────────
+
+def load_users():
+    """Load all users from the 'users' sheet. Cached 30 s."""
+    def _load():
+        sh = get_spreadsheet()
+        try:
+            ws = sh.worksheet("users")
+        except gspread.WorksheetNotFound:
+            return {}
+        headers, rows = _parse_ws(ws)
+        users = {}
+        for row in rows:
+            rec = _zip(headers, row)
+            uname = rec.get("username", "").strip().lower()
+            pwd   = rec.get("password", "").strip()
+            role  = rec.get("role", "lead").strip().lower()
+            if uname and pwd:
+                users[uname] = {"password": pwd, "role": role}
+        return users
+    return _cached("users", _load)
+
+
+def get_leads():
+    return [u for u, d in load_users().items() if d["role"] == "lead"]
+
+
+def load_org():
+    """Load org structure from the 'org' sheet. Cached 30 s."""
+    def _load():
+        sh = get_spreadsheet()
+        try:
+            ws = sh.worksheet("org")
+        except gspread.WorksheetNotFound:
+            return {}, {}
+        headers, rows = _parse_ws(ws)
+        emp_info, lead_emps = {}, {}
+        for row in rows:
+            rec = _zip(headers, row)
+            emp  = rec.get("employee", "").strip()
+            lead = rec.get("lead", "").strip()
+            role = rec.get("role", "Employee").strip() or "Employee"
+            if emp and lead:
+                emp_info[emp] = {"lead": lead, "role": role}
+                lead_emps.setdefault(lead, []).append(emp)
+        return emp_info, lead_emps
+    return _cached("org", _load)
+
+
 # ── Sheet helpers ─────────────────────────────────────────────────────────────
+
 def _parse_ws(ws):
-    """Read all values → (headers list, rows list-of-lists)."""
     data = ws.get_all_values()
     if not data:
         return [], []
     return data[0], data[1:]
 
-
-def _row_to_rec(headers, row):
+def _zip(headers, row):
     padded = row + [""] * max(0, len(headers) - len(row))
-    rec = dict(zip(headers, padded))
+    return dict(zip(headers, padded))
+
+def _to_rec(headers, row):
+    rec = _zip(headers, row)
     for field in ["comments", "shared_with"]:
         try:
             rec[field] = json.loads(rec.get(field) or "[]")
@@ -165,25 +196,19 @@ def _row_to_rec(headers, row):
             rec[cat] = 0
     return rec
 
-
-def load_org():
-    sh = get_spreadsheet()
+def _ensure_lead_sheet(sh, lead):
+    """Get or create a lead's worksheet on demand."""
     try:
-        ws = sh.worksheet("org")
+        return sh.worksheet(lead)
     except gspread.WorksheetNotFound:
-        return {}, {}
-    headers, rows = _parse_ws(ws)
-    emp_info, lead_emps = {}, {}
-    for row in rows:
-        padded = row + [""] * max(0, len(headers) - len(row))
-        rec = dict(zip(headers, padded))
-        emp  = rec.get("employee", "").strip()
-        lead = rec.get("lead", "").strip()
-        role = rec.get("role", "Employee").strip() or "Employee"
-        if emp and lead:
-            emp_info[emp] = {"lead": lead, "role": role}
-            lead_emps.setdefault(lead, []).append(emp)
-    return emp_info, lead_emps
+        ws = sh.add_worksheet(lead, rows=200, cols=len(REV_HEADERS))
+        time.sleep(0.8)
+        ws.append_row(REV_HEADERS)
+        return ws
+
+def compute_avg(review):
+    ratings = [review.get(c, 0) or 0 for c in RATING_CATEGORIES]
+    return round(sum(ratings) / len(ratings), 1) if any(ratings) else 0
 
 
 def load_review(lead, emp_name):
@@ -195,61 +220,49 @@ def load_review(lead, emp_name):
     headers, rows = _parse_ws(ws)
     for row in rows:
         if row and row[0] == emp_name:
-            return _row_to_rec(headers, row)
+            return _to_rec(headers, row)
     return None
 
 
 def load_all_lead_reviews(lead):
-    """Read all reviews for a lead in a single API call."""
+    """Read all reviews for a lead in one API call."""
     sh = get_spreadsheet()
     try:
         ws = sh.worksheet(lead)
     except gspread.WorksheetNotFound:
         return []
     headers, rows = _parse_ws(ws)
-    return [_row_to_rec(headers, row) for row in rows if row and row[0]]
+    return [_to_rec(headers, row) for row in rows if row and row[0]]
 
 
 def save_review(lead, emp_name, data):
     sh = get_spreadsheet()
-    try:
-        ws = sh.worksheet(lead)
-    except gspread.WorksheetNotFound:
-        return
+    ws = _ensure_lead_sheet(sh, lead)
     all_data = ws.get_all_values()
-    if not all_data:
-        return
-    headers = all_data[0]
+    headers = all_data[0] if all_data else REV_HEADERS
 
-    # Build row values in header order
-    def serialise(val):
+    def serial(val):
         if isinstance(val, (list, dict)):
             return json.dumps(val)
         return val if val is not None else ""
 
-    values = [serialise(data.get(h, "")) for h in headers]
+    values = [serial(data.get(h, "")) for h in headers]
     end_col = chr(ord("A") + len(headers) - 1)
 
-    # Find existing row
     for i, row in enumerate(all_data[1:], start=2):
         if row and row[0] == emp_name:
             ws.update(f"A{i}:{end_col}{i}", [values])
             return
 
-    # Not found — append
-    ws.append_row(values)
-
-
-def compute_avg(review):
-    ratings = [review.get(c, 0) or 0 for c in RATING_CATEGORIES]
-    return round(sum(ratings) / len(ratings), 1) if any(ratings) else 0
+    ws.append_row(values)  # new employee row
 
 
 def get_shared_employees(lead):
     sh = get_spreadsheet()
+    leads = get_leads()
     all_ws = {ws.title: ws for ws in sh.worksheets()}
     shared = []
-    for owner_lead in LEADS:
+    for owner_lead in leads:
         if owner_lead == lead or owner_lead not in all_ws:
             continue
         headers, rows = _parse_ws(all_ws[owner_lead])
@@ -267,12 +280,13 @@ def get_shared_employees(lead):
                 shared.append({
                     "emp": padded[0],
                     "owner_lead": owner_lead,
-                    "review": _row_to_rec(headers, row),
+                    "review": _to_rec(headers, row),
                 })
     return shared
 
 
 # ── Routes ────────────────────────────────────────────────────────────────────
+
 @app.route("/", methods=["GET", "POST"])
 def login():
     if "lead" in session:
@@ -280,7 +294,10 @@ def login():
     if request.method == "POST":
         username = request.form.get("username", "").strip().lower()
         password = request.form.get("password", "").strip()
-        user = USERS.get(username)
+        # Always bust cache on login so password changes are instant
+        bust_cache("users")
+        users = load_users()
+        user = users.get(username)
         if user and user["password"] == password:
             session["lead"] = username
             session["role"] = user["role"]
@@ -301,13 +318,14 @@ def dashboard():
         return redirect(url_for("login"))
 
     if session.get("role") == "director":
-        emp_info, lead_emps = load_org()
+        leads = get_leads()
+        _, lead_emps = load_org()
         lead_tiles = []
-        for lead in LEADS:
+        for lead in leads:
             reviews = load_all_lead_reviews(lead)
             rev_map = {r["employee"]: r for r in reviews}
             emps = lead_emps.get(lead, [])
-            rated, total_avg = 0, 0
+            rated, total_avg = 0, 0.0
             status_counts = {"Pending": 0, "In Progress": 0, "Completed": 0}
             for emp in emps:
                 rev = rev_map.get(emp)
@@ -401,8 +419,12 @@ def review(emp_name):
 
     review_data = load_review(owner_lead, emp_name) if owner_lead else {}
     if not review_data:
-        review_data = {"employee": emp_name, "status": "Pending", "comments": [], "shared_with": []}
-    all_leads = [l for l in LEADS if l != owner_lead]
+        review_data = {
+            "employee": emp_name, "status": "Pending",
+            "comments": [], "shared_with": [],
+        }
+    leads = get_leads()
+    all_leads = [l for l in leads if l != owner_lead]
 
     if request.method == "POST" and is_owner:
         action = request.form.get("action")
@@ -435,21 +457,16 @@ def review(emp_name):
 
     return render_template(
         "review.html",
-        lead=lead,
-        emp_name=emp_name,
-        emp_info=info,
-        review=review_data,
-        is_owner=is_owner,
-        owner_lead=owner_lead,
-        categories=RATING_CATEGORIES,
-        talking_points=TALKING_POINTS,
-        selected_points=selected_points,
-        notes_text=notes_text,
+        lead=lead, emp_name=emp_name, emp_info=info,
+        review=review_data, is_owner=is_owner, owner_lead=owner_lead,
+        categories=RATING_CATEGORIES, talking_points=TALKING_POINTS,
+        selected_points=selected_points, notes_text=notes_text,
         all_leads=all_leads,
     )
 
 
 # ── JSON APIs ─────────────────────────────────────────────────────────────────
+
 @app.route("/api/save_review", methods=["POST"])
 def api_save_review():
     if "lead" not in session:
