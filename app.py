@@ -57,6 +57,24 @@ def bust_cache(*keys):
         _cache.pop(k, None)
 
 
+# ── Users — manage logins here directly ──────────────────────────────────────
+# To add a user:    "username": {"password": "yourpass", "role": "lead"}
+# To add director:  "username": {"password": "yourpass", "role": "director"}
+# To remove:        delete the line
+# Usernames are case-insensitive (always stored lowercase)
+USERS = {
+    "chandra":   {"password": "pass123",    "role": "lead"},
+    "uma":       {"password": "pass123",    "role": "lead"},
+    "vinoth":    {"password": "pass123",    "role": "lead"},
+    "tejas":     {"password": "pass123",    "role": "lead"},
+    "suresh":    {"password": "pass123",    "role": "lead"},
+    "aishwarya": {"password": "pass123",    "role": "lead"},
+    "dheeraj":   {"password": "pass123",    "role": "lead"},
+    "drushya":   {"password": "Nforce@124", "role": "lead"},
+    "naveen":    {"password": "pass123",    "role": "director"},
+}
+LEADS = [u for u, d in USERS.items() if d["role"] == "lead"]
+
 # ── Constants ─────────────────────────────────────────────────────────────────
 RATING_CATEGORIES = [
     "Technical Skills", "Communication",
@@ -122,31 +140,6 @@ def ensure_sheets():
 
 
 # ── Dynamic loaders (everything comes from the sheet) ────────────────────────
-
-def load_users():
-    """Load all users from the 'users' sheet. Cached 30 s."""
-    def _load():
-        sh = get_spreadsheet()
-        try:
-            ws = sh.worksheet("users")
-        except gspread.WorksheetNotFound:
-            return {}
-        headers, rows = _parse_ws(ws)
-        users = {}
-        for row in rows:
-            rec = _zip(headers, row)
-            uname = rec.get("username", "").strip().lower()
-            pwd   = rec.get("password", "").strip()
-            role  = rec.get("role", "lead").strip().lower()
-            if uname and pwd:
-                users[uname] = {"password": pwd, "role": role}
-        return users
-    return _cached("users", _load)
-
-
-def get_leads():
-    return [u for u, d in load_users().items() if d["role"] == "lead"]
-
 
 def load_org():
     """Load org structure from the 'org' sheet. Cached 30 s."""
@@ -259,10 +252,9 @@ def save_review(lead, emp_name, data):
 
 def get_shared_employees(lead):
     sh = get_spreadsheet()
-    leads = get_leads()
     all_ws = {ws.title: ws for ws in sh.worksheets()}
     shared = []
-    for owner_lead in leads:
+    for owner_lead in LEADS:
         if owner_lead == lead or owner_lead not in all_ws:
             continue
         headers, rows = _parse_ws(all_ws[owner_lead])
@@ -294,10 +286,7 @@ def login():
     if request.method == "POST":
         username = request.form.get("username", "").strip().lower()
         password = request.form.get("password", "").strip()
-        # Always bust cache on login so password changes are instant
-        bust_cache("users")
-        users = load_users()
-        user = users.get(username)
+        user = USERS.get(username)
         if user and user["password"] == password:
             session["lead"] = username
             session["role"] = user["role"]
@@ -318,10 +307,9 @@ def dashboard():
         return redirect(url_for("login"))
 
     if session.get("role") == "director":
-        leads = get_leads()
         _, lead_emps = load_org()
         lead_tiles = []
-        for lead in leads:
+        for lead in LEADS:
             reviews = load_all_lead_reviews(lead)
             rev_map = {r["employee"]: r for r in reviews}
             emps = lead_emps.get(lead, [])
@@ -423,8 +411,7 @@ def review(emp_name):
             "employee": emp_name, "status": "Pending",
             "comments": [], "shared_with": [],
         }
-    leads = get_leads()
-    all_leads = [l for l in leads if l != owner_lead]
+    all_leads = [l for l in LEADS if l != owner_lead]
 
     if request.method == "POST" and is_owner:
         action = request.form.get("action")
