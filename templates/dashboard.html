@@ -1,0 +1,85 @@
+{% extends "base.html" %}
+{% block title %}Dashboard — PerfReview{% endblock %}
+{% block content %}
+<div class="dashboard-page">
+  <div class="page-header">
+    <div>
+      <h2 class="serif">My Team</h2>
+      <p class="subtitle">{{ employees|length }} direct report{{ 's' if employees|length != 1 }}</p>
+    </div>
+  </div>
+
+  <div class="employee-grid">
+    {% for emp in employees %}
+    <a href="{{ url_for('review', emp_name=emp.name) }}" class="emp-tile">
+      <div class="emp-photo-wrap">
+        {% set photo = url_for('static', filename='photos/' + emp.name + '.jpg') %}
+        <img
+          src="{{ url_for('static', filename='photos/' + emp.name + '.jpg') }}"
+          alt="{{ emp.name }}"
+          class="emp-photo"
+          onerror="this.style.display='none';this.nextElementSibling.style.display='flex';"
+        />
+        <div class="emp-initials" style="display:none">{{ emp.name[0].upper() }}</div>
+      </div>
+      <div class="emp-info">
+        <div class="emp-name">{{ emp.name | capitalize }}</div>
+        <div class="emp-role">{{ emp.info.role }}</div>
+        <div class="emp-meta">
+          <span class="status-badge status-{{ emp.status | lower | replace(' ', '-') }}">{{ emp.status }}</span>
+          {% if emp.avg_rating > 0 %}
+          <span class="avg-stars">
+            {% for i in range(1, 6) %}
+              <span class="star {% if i <= emp.avg_rating %}filled{% elif i - 0.5 <= emp.avg_rating %}half{% endif %}">★</span>
+            {% endfor %}
+            <span class="avg-num">{{ emp.avg_rating }}</span>
+          </span>
+          {% endif %}
+        </div>
+      </div>
+    </a>
+    {% endfor %}
+  </div>
+
+  {% if shared %}
+  <div class="shared-section">
+    <div class="page-header" style="margin-top:2.5rem">
+      <div>
+        <h2 class="serif">Shared with Me</h2>
+        <p class="subtitle">Reviews you've been granted access to</p>
+      </div>
+    </div>
+    <div class="employee-grid">
+      {% for item in shared %}
+      {% set emp = item.emp %}
+      {% set owner = item.owner_lead %}
+      {% set rev = item.review %}
+      <a href="{{ url_for('review', emp_name=emp) }}" class="emp-tile shared-tile">
+        <div class="shared-badge">Shared by {{ owner | capitalize }}</div>
+        <div class="emp-photo-wrap">
+          <img
+            src="{{ url_for('static', filename='photos/' + emp + '.jpg') }}"
+            alt="{{ emp }}"
+            class="emp-photo"
+            onerror="this.style.display='none';this.nextElementSibling.style.display='flex';"
+          />
+          <div class="emp-initials" style="display:none">{{ emp[0].upper() }}</div>
+        </div>
+        <div class="emp-info">
+          <div class="emp-name">{{ emp | capitalize }}</div>
+          <div class="emp-role">
+            {% for k, v in {'lahari':'Senior Developer','maheshwar':'Product Manager','anil':'QA Engineer','ravi':'Frontend Developer','deepa':'UX Designer','sneha':'Backend Developer','kiran':'DevOps Engineer','vikram':'Data Analyst','suresh':'Team Lead','pooja':'Business Analyst','ananya':'Mobile Developer','rohan':'Cloud Architect','nikhil':'Security Engineer','swati':'Full Stack Developer','amit':'ML Engineer','divya':'Scrum Master','rajesh':'Infrastructure Engineer','prakash':'Technical Writer','kavya':'Support Engineer','tarun':'Systems Analyst'}.items() %}
+              {% if k == emp %}{{ v }}{% endif %}
+            {% endfor %}
+          </div>
+          <div class="emp-meta">
+            <span class="status-badge status-{{ (rev.status or 'pending') | lower | replace(' ', '-') }}">{{ rev.status or 'Pending' }}</span>
+          </div>
+        </div>
+      </a>
+      {% endfor %}
+    </div>
+  </div>
+  {% endif %}
+</div>
+{% endblock %}

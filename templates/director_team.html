@@ -1,0 +1,86 @@
+{% extends "base.html" %}
+{% block title %}{{ lead_name | capitalize }}'s Team — Director View{% endblock %}
+{% block content %}
+<div class="dashboard-page">
+  <a href="{{ url_for('dashboard') }}" class="back-link">← All Teams</a>
+
+  <div class="page-header">
+    <div style="display:flex; align-items:center; gap:1rem;">
+      <div class="lead-avatar-lg">{{ lead_name[0].upper() }}</div>
+      <div>
+        <h2 class="serif">{{ lead_name | capitalize }}'s Team</h2>
+        <p class="subtitle">{{ employees|length }} resource{{ 's' if employees|length != 1 }} · View only</p>
+      </div>
+    </div>
+    <div class="director-badge"><span class="dir-icon">◈</span> Director</div>
+  </div>
+
+  {% if employees %}
+  <div class="dir-resource-list">
+    {% for emp in employees %}
+    <div class="dir-resource-card">
+      <div class="dir-card-header">
+        <div class="emp-photo-wrap small">
+          <img
+            src="{{ url_for('static', filename='photos/' + emp.name + '.jpg') }}"
+            alt="{{ emp.name }}"
+            class="emp-photo"
+            onerror="this.style.display='none';this.nextElementSibling.style.display='flex';"
+          />
+          <div class="emp-initials" style="display:none">{{ emp.name[0].upper() }}</div>
+        </div>
+        <div class="dir-card-identity">
+          <div class="emp-name">{{ emp.name | capitalize }}</div>
+          <div class="emp-role">{{ emp.info.role }}</div>
+        </div>
+        <span class="status-badge status-{{ (emp.status or 'pending') | lower | replace(' ', '-') }}">
+          {{ emp.status or 'Pending' }}
+        </span>
+        {% if emp.avg_rating > 0 %}
+        <div class="lead-avg-badge" style="margin-left:auto">
+          <span class="star-icon">★</span>{{ emp.avg_rating }}
+        </div>
+        {% endif %}
+      </div>
+
+      <div class="dir-ratings-grid">
+        {% for cat in categories %}
+        {% set val = emp.ratings.get(cat, 0) %}
+        <div class="dir-rating-row">
+          <span class="dir-rating-label">{{ cat }}</span>
+          <div class="dir-stars">
+            {% for i in range(1, 6) %}
+            <span class="star {% if i <= val %}filled{% endif %}" style="cursor:default">★</span>
+            {% endfor %}
+          </div>
+          <div class="progress-track" style="flex:1; margin: 0 .75rem;">
+            <div class="progress-fill" style="width:{{ val * 20 }}%"></div>
+          </div>
+          <span class="dir-rating-num">{{ val }}/5</span>
+        </div>
+        {% endfor %}
+      </div>
+
+      {% set notes = emp.notes or '' %}
+      {% if notes.startswith('__TP__') %}
+        {% set parts = notes.split('__END__', 1) %}
+        {% set notes_clean = parts[1] if parts|length > 1 else '' %}
+      {% else %}
+        {% set notes_clean = notes %}
+      {% endif %}
+      {% if notes_clean %}
+      <div class="dir-notes">
+        <span class="dir-notes-label">Notes</span>
+        <p class="dir-notes-text">{{ notes_clean }}</p>
+      </div>
+      {% endif %}
+    </div>
+    {% endfor %}
+  </div>
+  {% else %}
+  <div class="empty-state">
+    <p class="muted">No resources mapped to this lead yet.<br>Edit the <strong>org</strong> sheet in <code>appdata.xlsx</code> to add them.</p>
+  </div>
+  {% endif %}
+</div>
+{% endblock %}

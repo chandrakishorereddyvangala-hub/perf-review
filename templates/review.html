@@ -1,0 +1,293 @@
+{% extends "base.html" %}
+{% block title %}{{ emp_name | capitalize }} — Review{% endblock %}
+{% block content %}
+<div class="review-page">
+  <!-- Back -->
+  <a href="{{ url_for('dashboard') }}" class="back-link">← Dashboard</a>
+
+  <!-- Employee header -->
+  <div class="review-header">
+    <div class="review-photo-wrap">
+      <img
+        src="{{ url_for('static', filename='photos/' + emp_name + '.jpg') }}"
+        alt="{{ emp_name }}"
+        class="review-photo"
+        onerror="this.style.display='none';this.nextElementSibling.style.display='flex';"
+      />
+      <div class="review-initials" style="display:none">{{ emp_name[0].upper() }}</div>
+    </div>
+    <div class="review-header-info">
+      <h2 class="serif">{{ emp_name | capitalize }}</h2>
+      <div class="emp-role">{{ emp_info.role }}</div>
+      <div class="emp-meta">
+        {% if is_owner %}
+        <select id="status-select" class="status-select" onchange="autoSaveStatus(this.value)">
+          {% for s in ['Pending', 'In Progress', 'Completed'] %}
+          <option value="{{ s }}" {% if review.status == s %}selected{% endif %}>{{ s }}</option>
+          {% endfor %}
+        </select>
+        {% else %}
+        <span class="status-badge status-{{ (review.status or 'pending') | lower | replace(' ', '-') }}">
+          {{ review.status or 'Pending' }}
+        </span>
+        <span class="guest-label">Guest Lead View</span>
+        {% endif %}
+      </div>
+    </div>
+    {% if is_owner %}
+    <button class="btn-primary save-btn" onclick="saveReview()">Save Review</button>
+    {% endif %}
+  </div>
+
+  <div class="review-body">
+    <!-- Left col: ratings + progress + talking points -->
+    <div class="review-left">
+
+      <!-- Star Ratings -->
+      <section class="card">
+        <h3 class="serif card-title">Performance Ratings</h3>
+        {% for cat in categories %}
+        <div class="rating-row">
+          <label class="rating-label">{{ cat }}</label>
+          <div class="stars" data-cat="{{ cat }}" data-val="{{ review[cat] or 0 }}">
+            {% for i in range(1, 6) %}
+            <span class="star {% if i <= (review[cat] or 0) %}filled{% endif %}"
+              data-val="{{ i }}"
+              {% if is_owner %}onclick="setRating(this)"{% endif %}
+              {% if not is_owner %}style="cursor:default"{% endif %}>★</span>
+            {% endfor %}
+          </div>
+          <span class="rating-num" id="rnum-{{ cat | replace(' ', '-') }}">{{ review[cat] or 0 }}/5</span>
+        </div>
+        {% endfor %}
+      </section>
+
+      <!-- Progress Bars -->
+      <section class="card">
+        <h3 class="serif card-title">Progress Overview</h3>
+        {% for cat in categories %}
+        {% set val = (review[cat] or 0) %}
+        <div class="progress-row">
+          <span class="progress-label">{{ cat }}</span>
+          <div class="progress-track">
+            <div class="progress-fill" id="pbar-{{ cat | replace(' ', '-') }}" style="width: {{ val * 20 }}%"></div>
+          </div>
+          <span class="progress-pct" id="ppct-{{ cat | replace(' ', '-') }}">{{ val * 20 }}%</span>
+        </div>
+        {% endfor %}
+      </section>
+
+      <!-- Talking Points -->
+      <section class="card">
+        <h3 class="serif card-title">Talking Points</h3>
+        <div class="talking-points">
+          {% for tp in talking_points %}
+          <label class="tp-item {% if not is_owner %}disabled{% endif %}">
+            <input
+              type="checkbox"
+              class="tp-check"
+              value="{{ tp }}"
+              {% if tp in selected_points %}checked{% endif %}
+              {% if not is_owner %}disabled{% endif %}
+            />
+            <span class="tp-text">{{ tp }}</span>
+          </label>
+          {% endfor %}
+        </div>
+      </section>
+    </div>
+
+    <!-- Right col: notes + sharing + comments -->
+    <div class="review-right">
+
+      <!-- Shared Notes -->
+      <section class="card">
+        <h3 class="serif card-title">Shared Notes</h3>
+        {% if is_owner %}
+        <textarea
+          id="notes-area"
+          class="notes-area"
+          placeholder="Add performance notes, observations, action items…"
+          rows="8"
+        >{{ notes_text }}</textarea>
+        {% else %}
+        <div class="notes-readonly">
+          {{ notes_text or '<em class="muted">No notes added yet.</em>' }}
+        </div>
+        {% endif %}
+      </section>
+
+      {% if is_owner %}
+      <!-- Sharing -->
+      <section class="card">
+        <h3 class="serif card-title">Share Access</h3>
+        <p class="card-desc">Allow other leads to view and comment on this review.</p>
+        <div class="share-grid">
+          {% for l in all_leads %}
+          <label class="share-item">
+            <input
+              type="checkbox"
+              class="share-check"
+              value="{{ l }}"
+              {% if l in review.shared_with %}checked{% endif %}
+              onchange="updateSharing()"
+            />
+            <span class="share-avatar">{{ l[0].upper() }}</span>
+            <span class="share-name">{{ l | capitalize }}</span>
+          </label>
+          {% endfor %}
+        </div>
+      </section>
+      {% endif %}
+
+      <!-- Comments -->
+      <section class="card">
+        <h3 class="serif card-title">Lead Comments</h3>
+        <div class="comments-list" id="comments-list">
+          {% set comments = review.get('comments', []) %}
+          {% if comments %}
+            {% for c in comments %}
+            <div class="comment">
+              <div class="comment-meta">
+                <span class="comment-avatar">{{ c.author[0].upper() }}</span>
+                <span class="comment-author">{{ c.author | capitalize }}</span>
+                <span class="comment-time">{{ c.time }}</span>
+              </div>
+              <div class="comment-text">{{ c.text }}</div>
+            </div>
+            {% endfor %}
+          {% else %}
+            <p class="muted" id="no-comments">No comments yet.</p>
+          {% endif %}
+        </div>
+        <div class="comment-form">
+          <textarea id="comment-input" class="comment-input" placeholder="Add a comment…" rows="3"></textarea>
+          <button class="btn-primary" onclick="addComment()">Post Comment</button>
+        </div>
+      </section>
+
+    </div>
+  </div>
+</div>
+
+<script>
+const EMP_NAME = {{ emp_name | tojson }};
+const IS_OWNER = {{ 'true' if is_owner else 'false' }};
+
+// Star rating
+function setRating(starEl) {
+  const val = parseInt(starEl.dataset.val);
+  const group = starEl.closest('.stars');
+  const cat = group.dataset.cat;
+  group.dataset.val = val;
+  group.querySelectorAll('.star').forEach(s => {
+    s.classList.toggle('filled', parseInt(s.dataset.val) <= val);
+  });
+  const key = cat.replace(/ /g, '-');
+  document.getElementById('rnum-' + key).textContent = val + '/5';
+  // Update progress bar
+  document.getElementById('pbar-' + key).style.width = (val * 20) + '%';
+  document.getElementById('ppct-' + key).textContent = (val * 20) + '%';
+}
+
+function getRatings() {
+  const ratings = {};
+  document.querySelectorAll('.stars').forEach(group => {
+    ratings[group.dataset.cat] = parseInt(group.dataset.val) || 0;
+  });
+  return ratings;
+}
+
+function getTalkingPoints() {
+  return Array.from(document.querySelectorAll('.tp-check:checked')).map(c => c.value);
+}
+
+async function saveReview() {
+  const ratings = getRatings();
+  const notes = document.getElementById('notes-area') ? document.getElementById('notes-area').value : '';
+  const talking_points = getTalkingPoints();
+  const status = document.getElementById('status-select') ? document.getElementById('status-select').value : 'Pending';
+  const payload = { emp_name: EMP_NAME, notes, talking_points, status, ...ratings };
+  const resp = await fetch('/api/save_review', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(payload),
+  });
+  const data = await resp.json();
+  if (data.ok) {
+    showToast('Review saved!');
+  } else {
+    showToast('Error: ' + (data.error || 'unknown'), true);
+  }
+}
+
+async function autoSaveStatus(val) {
+  const ratings = getRatings();
+  const notes = document.getElementById('notes-area') ? document.getElementById('notes-area').value : '';
+  const talking_points = getTalkingPoints();
+  const payload = { emp_name: EMP_NAME, notes, talking_points, status: val, ...ratings };
+  await fetch('/api/save_review', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(payload),
+  });
+}
+
+async function updateSharing() {
+  const shared = Array.from(document.querySelectorAll('.share-check:checked')).map(c => c.value);
+  await fetch('/api/update_sharing', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ emp_name: EMP_NAME, shared_with: shared }),
+  });
+  showToast('Sharing updated');
+}
+
+async function addComment() {
+  const input = document.getElementById('comment-input');
+  const text = input.value.trim();
+  if (!text) return;
+  const resp = await fetch('/api/add_comment', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ emp_name: EMP_NAME, comment: text }),
+  });
+  const data = await resp.json();
+  if (data.ok) {
+    const noComments = document.getElementById('no-comments');
+    if (noComments) noComments.remove();
+    const list = document.getElementById('comments-list');
+    const c = data.comment;
+    list.insertAdjacentHTML('beforeend', `
+      <div class="comment">
+        <div class="comment-meta">
+          <span class="comment-avatar">${c.author[0].toUpperCase()}</span>
+          <span class="comment-author">${c.author.charAt(0).toUpperCase()+c.author.slice(1)}</span>
+          <span class="comment-time">${c.time}</span>
+        </div>
+        <div class="comment-text">${escapeHtml(c.text)}</div>
+      </div>
+    `);
+    input.value = '';
+    showToast('Comment posted');
+  }
+}
+
+function escapeHtml(t) {
+  return t.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+}
+
+function showToast(msg, err=false) {
+  let t = document.getElementById('toast');
+  if (!t) {
+    t = document.createElement('div');
+    t.id = 'toast';
+    document.body.appendChild(t);
+  }
+  t.className = 'toast' + (err ? ' toast-err' : '');
+  t.textContent = msg;
+  t.classList.add('show');
+  setTimeout(() => t.classList.remove('show'), 2500);
+}
+</script>
+{% endblock %}

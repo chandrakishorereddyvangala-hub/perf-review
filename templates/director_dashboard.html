@@ -1,0 +1,63 @@
+{% extends "base.html" %}
+{% block title %}Director View — PerfReview{% endblock %}
+{% block content %}
+<div class="dashboard-page">
+  <div class="page-header">
+    <div>
+      <h2 class="serif">Team Overview</h2>
+      <p class="subtitle">{{ lead_tiles|length }} leads · Director view</p>
+    </div>
+    <div class="director-badge">
+      <span class="dir-icon">◈</span> Director
+    </div>
+  </div>
+
+  <div class="lead-grid">
+    {% for tile in lead_tiles %}
+    <a href="{{ url_for('director_team', lead_name=tile.name) }}" class="lead-tile">
+      <div class="lead-tile-top">
+        <div class="lead-avatar-lg">{{ tile.name[0].upper() }}</div>
+        <div class="lead-tile-info">
+          <div class="lead-tile-name">{{ tile.name | capitalize }}</div>
+          <div class="lead-tile-sub">{{ tile.emp_count }} resource{{ 's' if tile.emp_count != 1 }}</div>
+        </div>
+        {% if tile.team_avg > 0 %}
+        <div class="lead-avg-badge">
+          <span class="star-icon">★</span>{{ tile.team_avg }}
+        </div>
+        {% endif %}
+      </div>
+
+      <div class="lead-tile-bars">
+        {% set total = tile.emp_count if tile.emp_count > 0 else 1 %}
+        <div class="mini-bar-row">
+          <span class="mini-bar-label">Completed</span>
+          <div class="mini-bar-track">
+            <div class="mini-bar-fill fill-complete" style="width:{{ (tile.status_counts.Completed / total * 100) | int }}%"></div>
+          </div>
+          <span class="mini-bar-num">{{ tile.status_counts.Completed }}</span>
+        </div>
+        <div class="mini-bar-row">
+          <span class="mini-bar-label">In Progress</span>
+          <div class="mini-bar-track">
+            <div class="mini-bar-fill fill-progress" style="width:{{ (tile.status_counts['In Progress'] / total * 100) | int }}%"></div>
+          </div>
+          <span class="mini-bar-num">{{ tile.status_counts['In Progress'] }}</span>
+        </div>
+        <div class="mini-bar-row">
+          <span class="mini-bar-label">Pending</span>
+          <div class="mini-bar-track">
+            <div class="mini-bar-fill fill-pending" style="width:{{ (tile.status_counts.Pending / total * 100) | int }}%"></div>
+          </div>
+          <span class="mini-bar-num">{{ tile.status_counts.Pending }}</span>
+        </div>
+      </div>
+
+      <div class="lead-tile-footer">
+        View team →
+      </div>
+    </a>
+    {% endfor %}
+  </div>
+</div>
+{% endblock %}
