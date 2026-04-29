@@ -39,6 +39,13 @@
     {% endif %}
   </div>
 
+  {% if is_owner %}
+  <button class="reset-btn" onclick="confirmReset()" title="Reset review">
+    <svg xmlns="http://www.w3.org/2000/svg" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><polyline points="1 4 1 10 7 10"/><path d="M3.51 15a9 9 0 1 0 .49-3.75"/></svg>
+    Reset
+  </button>
+  {% endif %}
+
   <div class="review-body">
     <!-- Left col: ratings + progress + talking points -->
     <div class="review-left">
@@ -47,54 +54,56 @@
       <section class="card">
         <h3 class="serif card-title">Performance Ratings</h3>
         {% for cat in categories %}
+        {% set cidx = loop.index %}
+        {% set cv = (review[cat] or 0) %}
         <div class="rating-row">
           <label class="rating-label">{{ cat }}</label>
-          <div class="stars" data-cat="{{ cat }}" data-val="{{ review[cat] or 0 }}">
+          <div class="stars" data-cat="{{ cat }}" data-cidx="{{ cidx }}" data-val="{{ cv }}"
+            {% if is_owner %}onmouseleave="clearPreview(this)"{% endif %}>
             {% for i in range(1, 6) %}
-            <span class="star {% if i <= (review[cat] or 0) %}filled{% endif %}"
-              data-val="{{ i }}"
-              {% if is_owner %}onclick="setRating(this)"{% endif %}
-              {% if not is_owner %}style="cursor:default"{% endif %}>★</span>
+            <span class="star-wrap" data-idx="{{ i }}"
+              {% if is_owner %}onclick="setRating(this,event)" onmousemove="previewRating(this,event)"{% endif %}
+              style="cursor:{% if is_owner %}pointer{% else %}default{% endif %}">
+              <span class="star-bg">★</span>
+              <span class="star-fill{% if cv >= i %} full{% elif cv >= i - 0.5 %} half{% endif %}">★</span>
+            </span>
             {% endfor %}
           </div>
-          <span class="rating-num" id="rnum-{{ cat | replace(' ', '-') }}">{{ review[cat] or 0 }}/5</span>
+          <span class="rating-num" id="rnum-{{ cidx }}">{{ cv }}/5</span>
         </div>
         {% endfor %}
       </section>
 
-      <!-- Progress Bars -->
+      <!-- Lead Comments accordion -->
       <section class="card">
-        <h3 class="serif card-title">Progress Overview</h3>
-        {% for cat in categories %}
-        {% set val = (review[cat] or 0) %}
-        <div class="progress-row">
-          <span class="progress-label">{{ cat }}</span>
-          <div class="progress-track">
-            <div class="progress-fill" id="pbar-{{ cat | replace(' ', '-') }}" style="width: {{ val * 20 }}%"></div>
+        <h3 class="serif card-title">Lead Comments</h3>
+        <div class="lc-list">
+          {% set lc = review.lead_comments if review.lead_comments is mapping else {} %}
+          {% for cat in categories %}
+          {% set existing = lc.get(cat, '') %}
+          <div class="lc-item">
+            <div class="lc-header" onclick="toggleLC(this)">
+              <span class="lc-cat">{{ cat }}</span>
+              <span class="lc-dot{% if existing %} lc-dot-active{% endif %}"></span>
+              <span class="lc-arrow">▸</span>
+            </div>
+            <div class="lc-body lc-body-hidden">
+              {% if is_owner %}
+              <textarea class="lc-textarea" data-cat="{{ cat }}" rows="3"
+                placeholder="Comments for {{ cat }}…"
+                onchange="markDot(this)"
+              >{{ existing }}</textarea>
+              {% else %}
+              <div class="notes-readonly" style="margin:0 0 .6rem">
+                {{ existing or '<em class="muted">No comment.</em>' }}
+              </div>
+              {% endif %}
+            </div>
           </div>
-          <span class="progress-pct" id="ppct-{{ cat | replace(' ', '-') }}">{{ val * 20 }}%</span>
-        </div>
-        {% endfor %}
-      </section>
-
-      <!-- Talking Points -->
-      <section class="card">
-        <h3 class="serif card-title">Talking Points</h3>
-        <div class="talking-points">
-          {% for tp in talking_points %}
-          <label class="tp-item {% if not is_owner %}disabled{% endif %}">
-            <input
-              type="checkbox"
-              class="tp-check"
-              value="{{ tp }}"
-              {% if tp in selected_points %}checked{% endif %}
-              {% if not is_owner %}disabled{% endif %}
-            />
-            <span class="tp-text">{{ tp }}</span>
-          </label>
           {% endfor %}
         </div>
       </section>
+
     </div>
 
     <!-- Right col: notes + sharing + comments -->
@@ -102,7 +111,7 @@
 
       <!-- Shared Notes -->
       <section class="card">
-        <h3 class="serif card-title">Shared Notes</h3>
+        <h3 class="serif card-title">Overall Feedback</h3>
         {% if is_owner %}
         <textarea
           id="notes-area"
@@ -174,73 +183,130 @@
 const EMP_NAME = {{ emp_name | tojson }};
 const IS_OWNER = {{ 'true' if is_owner else 'false' }};
 
-// Star rating
-function setRating(starEl) {
-  const val = parseInt(starEl.dataset.val);
-  const group = starEl.closest('.stars');
-  const cat = group.dataset.cat;
-  group.dataset.val = val;
-  group.querySelectorAll('.star').forEach(s => {
-    s.classList.toggle('filled', parseInt(s.dataset.val) <= val);
+// Star rating — supports 0.5 increments
+function _applyStars(group, val) {
+  group.querySelectorAll('.star-wrap').forEach(wrap => {
+    const i = parseInt(wrap.dataset.idx);
+    const fill = wrap.querySelector('.star-fill');
+    fill.className = 'star-fill' + (val >= i ? ' full' : val >= i - 0.5 ? ' half' : '');
   });
-  const key = cat.replace(/ /g, '-');
-  document.getElementById('rnum-' + key).textContent = val + '/5';
-  // Update progress bar
-  document.getElementById('pbar-' + key).style.width = (val * 20) + '%';
-  document.getElementById('ppct-' + key).textContent = (val * 20) + '%';
+}
+
+function setRating(wrapEl, event) {
+  const rect = wrapEl.getBoundingClientRect();
+  const val = (event.clientX - rect.left) < rect.width / 2
+    ? parseInt(wrapEl.dataset.idx) - 0.5
+    : parseInt(wrapEl.dataset.idx);
+  const group = wrapEl.closest('.stars');
+  group.dataset.val = val;
+  _applyStars(group, val);
+  document.getElementById('rnum-' + group.dataset.cidx).textContent = val + '/5';
+}
+
+function previewRating(wrapEl, event) {
+  const rect = wrapEl.getBoundingClientRect();
+  const preview = (event.clientX - rect.left) < rect.width / 2
+    ? parseInt(wrapEl.dataset.idx) - 0.5
+    : parseInt(wrapEl.dataset.idx);
+  _applyStars(wrapEl.closest('.stars'), preview);
+}
+
+function clearPreview(group) {
+  _applyStars(group, parseFloat(group.dataset.val) || 0);
 }
 
 function getRatings() {
   const ratings = {};
   document.querySelectorAll('.stars').forEach(group => {
-    ratings[group.dataset.cat] = parseInt(group.dataset.val) || 0;
+    ratings[group.dataset.cat] = parseFloat(group.dataset.val) || 0;
   });
   return ratings;
 }
 
-function getTalkingPoints() {
-  return Array.from(document.querySelectorAll('.tp-check:checked')).map(c => c.value);
+function getLeadComments() {
+  const lc = {};
+  document.querySelectorAll('.lc-textarea').forEach(ta => {
+    if (ta.value.trim()) lc[ta.dataset.cat] = ta.value.trim();
+  });
+  return lc;
+}
+
+function toggleLC(header) {
+  const body = header.nextElementSibling;
+  const arrow = header.querySelector('.lc-arrow');
+  const isHidden = body.classList.contains('lc-body-hidden');
+  body.classList.toggle('lc-body-hidden', !isHidden);
+  arrow.textContent = isHidden ? '▾' : '▸';
+  if (isHidden) body.querySelector('textarea')?.focus();
+}
+
+function markDot(textarea) {
+  const dot = textarea.closest('.lc-item').querySelector('.lc-dot');
+  dot.classList.toggle('lc-dot-active', textarea.value.trim().length > 0);
 }
 
 async function saveReview() {
   const ratings = getRatings();
   const notes = document.getElementById('notes-area') ? document.getElementById('notes-area').value : '';
-  const talking_points = getTalkingPoints();
+  const lead_comments = getLeadComments();
   const status = document.getElementById('status-select') ? document.getElementById('status-select').value : 'Pending';
-  const payload = { emp_name: EMP_NAME, notes, talking_points, status, ...ratings };
-  const resp = await fetch('/api/save_review', {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify(payload),
-  });
-  const data = await resp.json();
-  if (data.ok) {
-    showToast('Review saved!');
-  } else {
-    showToast('Error: ' + (data.error || 'unknown'), true);
+  const payload = { emp_name: EMP_NAME, notes, lead_comments, status, ...ratings };
+  try {
+    const resp = await fetch('/api/save_review', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload),
+    });
+    const data = await resp.json();
+    if (data.ok) {
+      showToast('Saved successfully');
+    } else {
+      showToast('Error saving review: ' + (data.error || 'unknown'), true);
+    }
+  } catch (err) {
+    showToast('Error saving review: ' + err.message, true);
   }
 }
 
 async function autoSaveStatus(val) {
   const ratings = getRatings();
   const notes = document.getElementById('notes-area') ? document.getElementById('notes-area').value : '';
-  const talking_points = getTalkingPoints();
-  const payload = { emp_name: EMP_NAME, notes, talking_points, status: val, ...ratings };
-  await fetch('/api/save_review', {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify(payload),
-  });
+  const lead_comments = getLeadComments();
+  const payload = { emp_name: EMP_NAME, notes, lead_comments, status: val, ...ratings };
+  try {
+    const resp = await fetch('/api/save_review', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload),
+    });
+    const data = await resp.json();
+    if (data.ok) {
+      showToast('Status updated');
+    } else {
+      showToast('Error: ' + (data.error || 'unknown'), true);
+    }
+  } catch (err) {
+    showToast('Error: ' + err.message, true);
+  }
 }
 
 async function updateSharing() {
   const shared = Array.from(document.querySelectorAll('.share-check:checked')).map(c => c.value);
-  await fetch('/api/update_sharing', {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ emp_name: EMP_NAME, shared_with: shared }),
-  });
-  showToast('Sharing updated');
+  try {
+    const resp = await fetch('/api/update_sharing', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ emp_name: EMP_NAME, shared_with: shared }),
+    });
+    const data = await resp.json();
+    if (data.ok) {
+      showToast('Sharing updated');
+    } else {
+      showToast('Error: ' + (data.error || 'unknown'), true);
+    }
+  } catch (err) {
+    showToast('Error: ' + err.message, true);
+  }
 }
 
 async function addComment() {
@@ -275,6 +341,25 @@ async function addComment() {
 
 function escapeHtml(t) {
   return t.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+}
+
+async function confirmReset() {
+  if (!confirm('Reset ' + EMP_NAME + '? This will permanently delete their review from the spreadsheet.')) return;
+  try {
+    const resp = await fetch('/api/delete_review', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ emp_name: EMP_NAME }),
+    });
+    const data = await resp.json();
+    if (data.ok) {
+      window.location.href = '/dashboard';
+    } else {
+      showToast('Error: ' + (data.error || 'unknown'), true);
+    }
+  } catch (err) {
+    showToast('Error: ' + err.message, true);
+  }
 }
 
 function showToast(msg, err=false) {

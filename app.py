@@ -78,24 +78,48 @@ LEADS = [u for u, d in USERS.items() if d["role"] == "lead"]
 
 # ── Constants ─────────────────────────────────────────────────────────────────
 RATING_CATEGORIES = [
-    "Technical Skills", "Communication",
-    "Teamwork", "Productivity", "Leadership",
-]
-TALKING_POINTS = [
-    "Achieves goals consistently",   "Proactive in problem-solving",
-    "Demonstrates growth mindset",   "Collaborates effectively",
-    "Meets deadlines reliably",      "Communicates blockers early",
-    "Shows initiative",              "Supports team members",
+    "Collaboration & Communication",
+    "Continuous Improvement & Learning",
+    "Compliance & Professional Conduct",
+    "Ownership & Value Addition",
+    "Stakeholder Satisfaction",
+    "Exceptional Contribution",
+    "Feedback & Improvement",
+    "Work Discipline & Professional Practice",
+    "SLA & Deadline Adherence",
+    "Automation & Tools",
+    "Quality Metrics & Reporting",
 ]
 REV_HEADERS = (
     ["employee", "status"]
     + RATING_CATEGORIES
-    + ["notes", "comments", "shared_with"]
+    + ["notes", "lead_comments", "comments", "shared_with"]
 )
 
 
 # ── Sheet initialisation (once on first request) ──────────────────────────────
 _sheet_ready = False
+
+def _migrate_lead_sheet(ws):
+    """Rewrite ws to match REV_HEADERS, preserving any column that kept its name."""
+    all_data = ws.get_all_values()
+    if not all_data:
+        ws.update('A1', [REV_HEADERS])
+        return
+    old_headers = all_data[0]
+    if old_headers == REV_HEADERS:
+        return  # already current
+    rows = all_data[1:]
+    new_data = [REV_HEADERS]
+    for row in rows:
+        old_rec = _zip(old_headers, row)
+        if not old_rec.get("employee"):
+            continue  # skip blank rows
+        new_row = [old_rec.get(h, "") for h in REV_HEADERS]
+        new_data.append(new_row)
+    ws.clear()
+    time.sleep(0.3)
+    ws.update('A1', new_data)
 
 def _init_sheets():
     global _sheet_ready
@@ -129,6 +153,17 @@ def _init_sheets():
         ws = sh.add_worksheet("org", rows=200, cols=5)
         time.sleep(0.8)
         ws.append_row(["employee", "lead", "role"])
+
+    # migrate all lead sheets to current REV_HEADERS
+    for lead in LEADS:
+        try:
+            lead_ws = _get_ws_ci(sh, lead)
+            _migrate_lead_sheet(lead_ws)
+            time.sleep(0.3)
+        except gspread.WorksheetNotFound:
+            pass
+        except Exception:
+            pass
 
     _sheet_ready = True
 
@@ -186,20 +221,48 @@ def _to_rec(headers, row):
             rec[field] = []
     for cat in RATING_CATEGORIES:
         try:
-            rec[cat] = int(rec.get(cat) or 0)
+            rec[cat] = float(rec.get(cat) or 0)
         except (ValueError, TypeError):
-            rec[cat] = 0
+            rec[cat] = 0.0
+    rec["notes"] = _clean_notes(rec.get("notes", ""))
+    try:
+        lc = rec.get("lead_comments", "")
+        rec["lead_comments"] = json.loads(lc) if lc else {}
+    except Exception:
+        rec["lead_comments"] = {}
     return rec
 
+def _get_ws_ci(sh, name):
+    """Case-insensitive worksheet lookup. Raises WorksheetNotFound if missing."""
+    for ws in sh.worksheets():
+        if ws.title.lower() == name.lower():
+            return ws
+    raise gspread.WorksheetNotFound(name)
+
 def _ensure_lead_sheet(sh, lead):
-    """Get or create a lead's worksheet on demand."""
+    """Get or create a lead's worksheet on demand (case-insensitive match).
+    Also syncs the header row if categories have changed."""
     try:
-        return sh.worksheet(lead)
+        ws = _get_ws_ci(sh, lead)
+        if ws.row_values(1) != REV_HEADERS:
+            ws.update('A1', [REV_HEADERS])
+        return ws
     except gspread.WorksheetNotFound:
         ws = sh.add_worksheet(lead, rows=200, cols=len(REV_HEADERS))
         time.sleep(0.8)
         ws.append_row(REV_HEADERS)
         return ws
+
+def _clean_notes(raw):
+    """Strip legacy __TP__....__END__ encoding — return plain text only."""
+    if not raw:
+        return ""
+    if raw.startswith("__TP__"):
+        try:
+            return raw.split("__END__", 1)[1]
+        except Exception:
+            return ""
+    return raw
 
 def compute_avg(review):
     ratings = [review.get(c, 0) or 0 for c in RATING_CATEGORIES]
@@ -209,7 +272,7 @@ def compute_avg(review):
 def load_review(lead, emp_name):
     sh = get_spreadsheet()
     try:
-        ws = sh.worksheet(lead)
+        ws = _get_ws_ci(sh, lead)
     except gspread.WorksheetNotFound:
         return None
     headers, rows = _parse_ws(ws)
@@ -223,7 +286,7 @@ def load_all_lead_reviews(lead):
     """Read all reviews for a lead in one API call."""
     sh = get_spreadsheet()
     try:
-        ws = sh.worksheet(lead)
+        ws = _get_ws_ci(sh, lead)
     except gspread.WorksheetNotFound:
         return []
     headers, rows = _parse_ws(ws)
@@ -246,7 +309,7 @@ def save_review(lead, emp_name, data):
 
     for i, row in enumerate(all_data[1:], start=2):
         if row and row[0] == emp_name:
-            ws.update([values], f"A{i}:{end_col}{i}")
+            ws.update(f"A{i}:{end_col}{i}", [values])  # gspread 6.x: range first
             return
 
     ws.append_row(values)  # new employee row
@@ -254,12 +317,13 @@ def save_review(lead, emp_name, data):
 
 def get_shared_employees(lead):
     sh = get_spreadsheet()
-    all_ws = {ws.title: ws for ws in sh.worksheets()}
+    all_ws = {ws.title.lower(): ws for ws in sh.worksheets()}  # lowercase keys
     shared = []
     for owner_lead in LEADS:
-        if owner_lead == lead or owner_lead not in all_ws:
+        ol_lower = owner_lead.lower()
+        if ol_lower == lead or ol_lower not in all_ws:
             continue
-        headers, rows = _parse_ws(all_ws[owner_lead])
+        headers, rows = _parse_ws(all_ws[ol_lower])
         try:
             sw_idx = headers.index("shared_with")
         except ValueError:
@@ -364,20 +428,14 @@ def director_team(lead_name):
     employees = []
     for emp in lead_emps.get(lead_name, []):
         rev = rev_map.get(emp, {})
-        notes_raw = rev.get("notes", "") or ""
-        notes_text = notes_raw
-        if notes_raw.startswith("__TP__"):
-            try:
-                notes_text = notes_raw.split("__END__", 1)[1]
-            except Exception:
-                pass
         employees.append({
             "name": emp,
             "info": emp_info.get(emp, {"role": "Employee"}),
             "status": rev.get("status", "Pending"),
             "avg_rating": compute_avg(rev) if rev else 0,
             "ratings": {c: rev.get(c, 0) or 0 for c in RATING_CATEGORIES},
-            "notes": notes_text,
+            "notes": rev.get("notes", ""),
+            "lead_comments": rev.get("lead_comments", ""),
         })
     return render_template(
         "director_team.html",
@@ -436,22 +494,14 @@ def review(emp_name):
             flash("Sharing updated.")
             return redirect(url_for("review", emp_name=emp_name))
 
-    notes_raw = review_data.get("notes", "") or ""
-    selected_points, notes_text = [], notes_raw
-    if notes_raw.startswith("__TP__"):
-        try:
-            parts = notes_raw.split("__END__", 1)
-            selected_points = json.loads(parts[0].replace("__TP__", ""))
-            notes_text = parts[1] if len(parts) > 1 else ""
-        except Exception:
-            pass
+    notes_text = review_data.get("notes", "") or ""
 
     return render_template(
         "review.html",
         lead=lead, emp_name=emp_name, emp_info=info,
         review=review_data, is_owner=is_owner, owner_lead=owner_lead,
-        categories=RATING_CATEGORIES, talking_points=TALKING_POINTS,
-        selected_points=selected_points, notes_text=notes_text,
+        categories=RATING_CATEGORIES,
+        notes_text=notes_text,
         all_leads=all_leads,
     )
 
@@ -465,31 +515,28 @@ def api_save_review():
     if session.get("role") == "director":
         return jsonify({"ok": False, "error": "View-only"}), 403
     lead = session["lead"]
-    data = request.get_json()
-    emp_name = data.get("emp_name")
-    emp_info, _ = load_org()
-    owner_lead = emp_info.get(emp_name, {}).get("lead")
-    if lead != owner_lead:
-        return jsonify({"ok": False, "error": "Not authorized"}), 403
-    review_data = load_review(lead, emp_name) or {}
-    for cat in RATING_CATEGORIES:
-        if cat in data:
-            review_data[cat] = data[cat]
-    if "notes" in data:
-        review_data["notes"] = data["notes"]
-    if "status" in data:
-        review_data["status"] = data["status"]
-    if "talking_points" in data:
-        notes = data.get("notes", review_data.get("notes", "") or "")
-        if isinstance(notes, str) and notes.startswith("__TP__"):
-            try:
-                notes = notes.split("__END__", 1)[1]
-            except Exception:
-                pass
-        review_data["notes"] = f"__TP__{json.dumps(data['talking_points'])}__END__{notes}"
-    review_data.setdefault("employee", emp_name)
-    save_review(lead, emp_name, review_data)
-    return jsonify({"ok": True})
+    try:
+        data = request.get_json()
+        emp_name = data.get("emp_name")
+        emp_info, _ = load_org()
+        owner_lead = emp_info.get(emp_name, {}).get("lead")
+        if lead != owner_lead:
+            return jsonify({"ok": False, "error": "Not authorized"}), 403
+        review_data = load_review(lead, emp_name) or {}
+        for cat in RATING_CATEGORIES:
+            if cat in data:
+                review_data[cat] = data[cat]
+        if "notes" in data:
+            review_data["notes"] = _clean_notes(data["notes"])
+        if "lead_comments" in data:
+            review_data["lead_comments"] = data["lead_comments"]
+        if "status" in data:
+            review_data["status"] = data["status"]
+        review_data.setdefault("employee", emp_name)
+        save_review(lead, emp_name, review_data)
+        return jsonify({"ok": True})
+    except Exception as e:
+        return jsonify({"ok": False, "error": str(e)}), 500
 
 
 @app.route("/api/add_comment", methods=["POST"])
@@ -499,33 +546,36 @@ def api_add_comment():
     if session.get("role") == "director":
         return jsonify({"ok": False, "error": "View-only"}), 403
     lead = session["lead"]
-    data = request.get_json()
-    emp_name = data.get("emp_name")
-    comment_text = data.get("comment", "").strip()
-    emp_info, _ = load_org()
-    owner_lead = emp_info.get(emp_name, {}).get("lead")
-    is_owner = (lead == owner_lead)
-    if not is_owner:
-        rev_check = load_review(owner_lead, emp_name)
-        if not rev_check or lead not in rev_check.get("shared_with", []):
-            return jsonify({"ok": False, "error": "Access denied"}), 403
-    review_data = load_review(owner_lead, emp_name) or {}
-    comments = review_data.get("comments", [])
-    if isinstance(comments, str):
-        try:
-            comments = json.loads(comments)
-        except Exception:
-            comments = []
-    new_comment = {
-        "author": lead,
-        "text": comment_text,
-        "time": datetime.now().strftime("%b %d, %Y %H:%M"),
-    }
-    comments.append(new_comment)
-    review_data["comments"] = comments
-    review_data.setdefault("employee", emp_name)
-    save_review(owner_lead, emp_name, review_data)
-    return jsonify({"ok": True, "comment": new_comment})
+    try:
+        data = request.get_json()
+        emp_name = data.get("emp_name")
+        comment_text = data.get("comment", "").strip()
+        emp_info, _ = load_org()
+        owner_lead = emp_info.get(emp_name, {}).get("lead")
+        is_owner = (lead == owner_lead)
+        if not is_owner:
+            rev_check = load_review(owner_lead, emp_name)
+            if not rev_check or lead not in rev_check.get("shared_with", []):
+                return jsonify({"ok": False, "error": "Access denied"}), 403
+        review_data = load_review(owner_lead, emp_name) or {}
+        comments = review_data.get("comments", [])
+        if isinstance(comments, str):
+            try:
+                comments = json.loads(comments)
+            except Exception:
+                comments = []
+        new_comment = {
+            "author": lead,
+            "text": comment_text,
+            "time": datetime.now().strftime("%b %d, %Y %H:%M"),
+        }
+        comments.append(new_comment)
+        review_data["comments"] = comments
+        review_data.setdefault("employee", emp_name)
+        save_review(owner_lead, emp_name, review_data)
+        return jsonify({"ok": True, "comment": new_comment})
+    except Exception as e:
+        return jsonify({"ok": False, "error": str(e)}), 500
 
 
 @app.route("/api/update_sharing", methods=["POST"])
@@ -535,17 +585,46 @@ def api_update_sharing():
     if session.get("role") == "director":
         return jsonify({"ok": False}), 403
     lead = session["lead"]
-    data = request.get_json()
-    emp_name = data.get("emp_name")
-    emp_info, _ = load_org()
-    owner_lead = emp_info.get(emp_name, {}).get("lead")
-    if lead != owner_lead:
-        return jsonify({"ok": False}), 403
-    review_data = load_review(lead, emp_name) or {}
-    review_data["shared_with"] = data.get("shared_with", [])
-    review_data.setdefault("employee", emp_name)
-    save_review(lead, emp_name, review_data)
-    return jsonify({"ok": True})
+    try:
+        data = request.get_json()
+        emp_name = data.get("emp_name")
+        emp_info, _ = load_org()
+        owner_lead = emp_info.get(emp_name, {}).get("lead")
+        if lead != owner_lead:
+            return jsonify({"ok": False, "error": "Not authorized"}), 403
+        review_data = load_review(lead, emp_name) or {}
+        review_data["shared_with"] = data.get("shared_with", [])
+        review_data.setdefault("employee", emp_name)
+        save_review(lead, emp_name, review_data)
+        return jsonify({"ok": True})
+    except Exception as e:
+        return jsonify({"ok": False, "error": str(e)}), 500
+
+
+@app.route("/api/delete_review", methods=["POST"])
+def api_delete_review():
+    if "lead" not in session:
+        return jsonify({"ok": False}), 401
+    if session.get("role") == "director":
+        return jsonify({"ok": False, "error": "View-only"}), 403
+    lead = session["lead"]
+    try:
+        data = request.get_json()
+        emp_name = data.get("emp_name")
+        emp_info, _ = load_org()
+        owner_lead = emp_info.get(emp_name, {}).get("lead")
+        if lead != owner_lead:
+            return jsonify({"ok": False, "error": "Not authorized"}), 403
+        sh = get_spreadsheet()
+        ws = _get_ws_ci(sh, lead)
+        all_data = ws.get_all_values()
+        for i, row in enumerate(all_data[1:], start=2):
+            if row and row[0] == emp_name:
+                ws.delete_rows(i)
+                return jsonify({"ok": True})
+        return jsonify({"ok": True})  # already gone
+    except Exception as e:
+        return jsonify({"ok": False, "error": str(e)}), 500
 
 
 if __name__ == "__main__":

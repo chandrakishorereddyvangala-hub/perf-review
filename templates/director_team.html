@@ -50,7 +50,10 @@
           <span class="dir-rating-label">{{ cat }}</span>
           <div class="dir-stars">
             {% for i in range(1, 6) %}
-            <span class="star {% if i <= val %}filled{% endif %}" style="cursor:default">★</span>
+            <span class="star-wrap" style="cursor:default">
+              <span class="star-bg">★</span>
+              <span class="star-fill{% if val >= i %} full{% elif val >= i - 0.5 %} half{% endif %}">★</span>
+            </span>
             {% endfor %}
           </div>
           <div class="progress-track" style="flex:1; margin: 0 .75rem;">
@@ -61,17 +64,23 @@
         {% endfor %}
       </div>
 
-      {% set notes = emp.notes or '' %}
-      {% if notes.startswith('__TP__') %}
-        {% set parts = notes.split('__END__', 1) %}
-        {% set notes_clean = parts[1] if parts|length > 1 else '' %}
-      {% else %}
-        {% set notes_clean = notes %}
-      {% endif %}
-      {% if notes_clean %}
+      {% if emp.lead_comments %}
       <div class="dir-notes">
-        <span class="dir-notes-label">Notes</span>
-        <p class="dir-notes-text">{{ notes_clean }}</p>
+        <span class="dir-notes-label">Lead Comments</span>
+        {% for cat, comment in emp.lead_comments.items() %}
+        {% if comment %}
+        <div style="margin-bottom:.5rem">
+          <div style="font-size:.78rem;font-weight:600;color:var(--muted);margin-bottom:.2rem">{{ cat }}</div>
+          <p class="dir-notes-text" style="margin:0">{{ comment }}</p>
+        </div>
+        {% endif %}
+        {% endfor %}
+      </div>
+      {% endif %}
+      {% if emp.notes %}
+      <div class="dir-notes">
+        <span class="dir-notes-label">Overall Feedback</span>
+        <p class="dir-notes-text">{{ emp.notes }}</p>
       </div>
       {% endif %}
     </div>
