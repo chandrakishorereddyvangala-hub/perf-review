@@ -41,7 +41,7 @@ def get_spreadsheet():
 # Keeps the app snappy without hammering the Sheets API on every page load.
 # Any change you make in the spreadsheet reflects in the app within 30 seconds.
 _cache: dict = {}
-CACHE_TTL = 30  # seconds
+CACHE_TTL = 300  # seconds — warm invocations reuse the process; cold starts bypass anyway
 
 def _cached(key, loader_fn):
     now = time.time()
@@ -154,26 +154,20 @@ def _init_sheets():
         time.sleep(0.8)
         ws.append_row(["employee", "lead", "role"])
 
-    # migrate all lead sheets to current REV_HEADERS
+    # migrate all lead sheets to current REV_HEADERS (reuse worksheets list)
+    all_ws = {ws.title.lower(): ws for ws in sh.worksheets()}
     for lead in LEADS:
-        try:
-            lead_ws = _get_ws_ci(sh, lead)
-            _migrate_lead_sheet(lead_ws)
-            time.sleep(0.3)
-        except gspread.WorksheetNotFound:
-            pass
-        except Exception:
-            pass
+        ws = all_ws.get(lead.lower())
+        if ws:
+            try:
+                _migrate_lead_sheet(ws)
+                time.sleep(0.3)
+            except Exception:
+                pass
 
     _sheet_ready = True
 
 
-@app.before_request
-def ensure_sheets():
-    try:
-        _init_sheets()
-    except Exception:
-        pass
 
 
 # ── Dynamic loaders (everything comes from the sheet) ────────────────────────
