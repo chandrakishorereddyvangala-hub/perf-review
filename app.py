@@ -630,17 +630,31 @@ def api_delete_review():
 @app.route("/healthz")
 def healthz():
     errors = []
+    info = {}
     if not os.environ.get("GOOGLE_CREDENTIALS") and not os.path.exists("credentials.json"):
         errors.append("GOOGLE_CREDENTIALS env var not set and credentials.json not found")
     if not os.environ.get("SPREADSHEET_ID"):
         errors.append("SPREADSHEET_ID env var not set")
     try:
         get_client()
+        info["auth"] = "ok"
     except Exception as e:
         errors.append(f"Google auth failed: {e}")
+    try:
+        sh = get_spreadsheet()
+        tabs = [ws.title for ws in sh.worksheets()]
+        info["spreadsheet_tabs"] = tabs
+    except Exception as e:
+        errors.append(f"Spreadsheet open failed: {e}")
+    try:
+        emp_info, lead_emps = load_org()
+        info["org_employees"] = len(emp_info)
+        info["org_leads"] = list(lead_emps.keys())
+    except Exception as e:
+        errors.append(f"load_org failed: {e}")
     if errors:
-        return jsonify({"ok": False, "errors": errors}), 500
-    return jsonify({"ok": True})
+        return jsonify({"ok": False, "errors": errors, "info": info}), 500
+    return jsonify({"ok": True, "info": info})
 
 
 if __name__ == "__main__":
