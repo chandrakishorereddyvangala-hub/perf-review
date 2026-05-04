@@ -5,6 +5,17 @@
   <!-- Back -->
   <a href="{{ url_for('dashboard') }}" class="back-link">← Dashboard</a>
 
+  {% if not is_owner %}
+  <div class="readonly-banner">
+    <span class="readonly-banner-icon">🔒</span>
+    <div>
+      <strong>Read-only access</strong> — This review was shared with you by <strong>{{ owner_lead | capitalize }}</strong>.
+      You can read the ratings and notes, and post messages in the Peer Discussion thread below.
+      Only {{ owner_lead | capitalize }} can edit ratings and save changes.
+    </div>
+  </div>
+  {% endif %}
+
   <!-- Employee header -->
   <div class="review-header">
     <div class="review-photo-wrap">
@@ -95,7 +106,7 @@
               >{{ existing }}</textarea>
               {% else %}
               <div class="notes-readonly" style="margin:0 0 .6rem">
-                {{ existing or '<em class="muted">No comment.</em>' }}
+                {% if existing %}{{ existing }}{% else %}<span class="muted" style="font-style:italic">No comment added yet.</span>{% endif %}
               </div>
               {% endif %}
             </div>
@@ -121,7 +132,7 @@
         >{{ notes_text }}</textarea>
         {% else %}
         <div class="notes-readonly">
-          {{ notes_text or '<em class="muted">No notes added yet.</em>' }}
+          {% if notes_text %}{{ notes_text }}{% else %}<span class="muted" style="font-style:italic">No overall feedback added yet.</span>{% endif %}
         </div>
         {% endif %}
       </section>
@@ -137,8 +148,8 @@
             <input
               type="checkbox"
               class="share-check"
-              value="{{ l }}"
-              {% if l in review.shared_with %}checked{% endif %}
+              value="{{ l.lower() }}"
+              {% if l.lower() in review.shared_with %}checked{% endif %}
               onchange="updateSharing()"
             />
             <span class="share-avatar">{{ l[0].upper() }}</span>
@@ -149,9 +160,12 @@
       </section>
       {% endif %}
 
-      <!-- Comments -->
+      <!-- Peer Discussion (both leads can chat here) -->
       <section class="card">
-        <h3 class="serif card-title">Lead Comments</h3>
+        <div class="peer-disc-header">
+          <h3 class="serif card-title" style="margin-bottom:0">Peer Discussion</h3>
+          <span class="peer-disc-label">Both leads</span>
+        </div>
         <div class="comments-list" id="comments-list">
           {% set comments = review.get('comments', []) %}
           {% if comments %}
@@ -166,12 +180,12 @@
             </div>
             {% endfor %}
           {% else %}
-            <p class="muted" id="no-comments">No comments yet.</p>
+            <p class="muted" id="no-comments">No messages yet. Start the discussion below.</p>
           {% endif %}
         </div>
         <div class="comment-form">
-          <textarea id="comment-input" class="comment-input" placeholder="Add a comment…" rows="3"></textarea>
-          <button class="btn-primary" onclick="addComment()">Post Comment</button>
+          <textarea id="comment-input" class="comment-input" placeholder="Write a message to the other lead…" rows="3"></textarea>
+          <button class="btn-primary" onclick="addComment()">Send Message</button>
         </div>
       </section>
 

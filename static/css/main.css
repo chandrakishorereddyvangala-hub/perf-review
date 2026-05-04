@@ -290,12 +290,55 @@ a { text-decoration: none; color: inherit; }
 .avg-stars .star.filled { color: var(--red); }
 .avg-num { font-size: .78rem; color: var(--muted); margin-left: 3px; }
 
+/* ─── Dashboard tabs ────────────────────────────────────────── */
+.dash-tabs {
+  display: flex; gap: 0; border-bottom: 2px solid var(--border);
+  margin-bottom: 1.5rem;
+}
+.dash-tab {
+  background: none; border: none; border-bottom: 3px solid transparent;
+  margin-bottom: -2px; padding: .65rem 1.25rem;
+  font-family: 'DM Sans', sans-serif; font-size: .92rem; font-weight: 600;
+  color: var(--muted); cursor: pointer; display: flex; align-items: center; gap: .5rem;
+  transition: color .18s, border-color .18s;
+}
+.dash-tab:hover { color: var(--text); }
+.dash-tab.active { color: var(--red); border-bottom-color: var(--red); }
+.dash-tab-count {
+  font-size: .72rem; font-weight: 700; border-radius: 100px;
+  padding: .1rem .5rem; background: var(--border); color: var(--muted);
+  min-width: 20px; text-align: center;
+}
+.dash-tab-count-active { background: var(--dir-light); color: var(--dir-color); }
+.dash-tab.active .dash-tab-count { background: var(--red-light); color: var(--red); }
+.dash-panel { }
+
 /* Shared */
 .shared-tile { border-color: #C4B5FD; }
-.shared-badge { position: absolute; top: .5rem; right: .5rem; background: #EDE9FE; color: #6D28D9; font-size: .7rem; font-weight: 700; border-radius: 2px; padding: .2rem .55rem; letter-spacing: .04em; text-transform: uppercase; }
+.shared-badge { position: absolute; top: .5rem; left: .5rem; background: #EDE9FE; color: #6D28D9; font-size: .7rem; font-weight: 700; border-radius: 2px; padding: .2rem .55rem; letter-spacing: .04em; text-transform: uppercase; }
+.shared-readonly-badge { position: absolute; top: .5rem; right: .5rem; background: #F3F4F6; color: #6B7280; font-size: .7rem; font-weight: 700; border-radius: 2px; padding: .2rem .55rem; letter-spacing: .04em; text-transform: uppercase; }
 .shared-section { margin-top: 1rem; }
 .empty-state { text-align: center; padding: 4rem 2rem; }
 .empty-state code { background: var(--border); border-radius: var(--radius); padding: .1rem .4rem; font-size: .88rem; }
+
+/* ─── Shared-lead read-only banner ──────────────────────────── */
+.readonly-banner {
+  display: flex; align-items: center; gap: .75rem;
+  background: #F3F4F6; border: 1.5px solid #D1D5DB; border-radius: var(--radius-lg);
+  padding: .85rem 1.25rem; margin-bottom: 1.25rem;
+  font-size: .92rem; color: #6B7280;
+}
+.readonly-banner-icon { font-size: 1.1rem; flex-shrink: 0; }
+.readonly-banner strong { font-weight: 700; }
+
+/* ─── Peer Discussion section ───────────────────────────────── */
+.peer-disc-header {
+  display: flex; align-items: center; justify-content: space-between; margin-bottom: 1rem;
+}
+.peer-disc-label {
+  font-size: .72rem; font-weight: 700; background: var(--dir-light); color: var(--dir-color);
+  border-radius: 2px; padding: .2rem .6rem; letter-spacing: .05em; text-transform: uppercase;
+}
 
 /* ─── Review page ───────────────────────────────────────────── */
 .back-link { display: inline-flex; align-items: center; gap: .4rem; color: var(--muted); font-size: .9rem; font-weight: 500; margin-bottom: 1.2rem; transition: color .2s; }
@@ -542,6 +585,23 @@ input[type=checkbox].share-check { accent-color: var(--red); }
 .notif-message { font-size: .95rem; font-weight: 500; margin-bottom: .25rem; }
 .notif-time { color: var(--muted); font-size: .82rem; }
 .notif-empty { text-align: center; padding: 4rem 2rem; color: var(--muted); font-size: 1rem; }
+.notif-item { text-decoration: none; color: inherit; cursor: default; }
+.notif-clickable {
+  cursor: pointer; transition: border-color .18s, background .18s, box-shadow .18s;
+}
+.notif-clickable:hover {
+  border-color: var(--red); background: var(--red-light);
+  box-shadow: var(--shadow-lg); text-decoration: none; color: inherit;
+}
+.notif-clickable.unread:hover { background: #fce4e9; }
+.notif-view-hint {
+  color: var(--red); font-weight: 600; font-size: .78rem; margin-left: .5rem;
+}
+.notif-arrow {
+  font-size: 1.4rem; color: var(--muted); align-self: center;
+  transition: color .18s, transform .18s; flex-shrink: 0;
+}
+.notif-clickable:hover .notif-arrow { color: var(--red); transform: translateX(3px); }
 
 /* ─── Rankings page ──────────────────────────────────────────── */
 .rankings-page { display: flex; flex-direction: column; gap: 1.25rem; }

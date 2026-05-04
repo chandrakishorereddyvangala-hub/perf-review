@@ -2,6 +2,7 @@ import os
 import re
 import json
 import time
+import threading
 from io import BytesIO
 import gspread
 import openpyxl
@@ -22,20 +23,24 @@ SPREADSHEET_ID = os.environ.get("SPREADSHEET_ID", "")
 SCOPES = ["https://www.googleapis.com/auth/spreadsheets"]
 
 _gc = None
+_gc_lock = threading.Lock()
 
 def get_client():
     global _gc
-    if _gc is not None:
+    if _gc is not None:          # fast path — no lock needed once initialised
         return _gc
-    raw = os.environ.get("GOOGLE_CREDENTIALS", "")
-    if raw:
-        info = json.loads(raw)
-        creds = Credentials.from_service_account_info(info, scopes=SCOPES)
-        _gc = gspread.authorize(creds)
-    elif os.path.exists("credentials.json"):
-        _gc = gspread.service_account(filename="credentials.json")
-    else:
-        raise RuntimeError("No Google credentials found.")
+    with _gc_lock:               # slow path — only one thread initialises
+        if _gc is not None:
+            return _gc
+        raw = os.environ.get("GOOGLE_CREDENTIALS", "")
+        if raw:
+            info = json.loads(raw)
+            creds = Credentials.from_service_account_info(info, scopes=SCOPES)
+            _gc = gspread.authorize(creds)
+        elif os.path.exists("credentials.json"):
+            _gc = gspread.service_account(filename="credentials.json")
+        else:
+            raise RuntimeError("No Google credentials found.")
     return _gc
 
 def get_spreadsheet():
@@ -46,16 +51,23 @@ def get_spreadsheet():
 # Keeps the app snappy without hammering the Sheets API on every page load.
 # Any change you make in the spreadsheet reflects in the app within 30 seconds.
 _cache: dict = {}
-CACHE_TTL = 300  # seconds — warm invocations reuse the process; cold starts bypass anyway
+_cache_lock = threading.Lock()
+CACHE_TTL = 300  # seconds
 
 def _cached(key, loader_fn):
     now = time.time()
+    # Fast path — no lock, cache is warm
     entry = _cache.get(key)
     if entry and (now - entry["ts"]) < CACHE_TTL:
         return entry["data"]
-    data = loader_fn()
-    _cache[key] = {"data": data, "ts": now}
-    return data
+    # Slow path — only one thread calls the loader for this key
+    with _cache_lock:
+        entry = _cache.get(key)          # recheck under lock
+        if entry and (now - entry["ts"]) < CACHE_TTL:
+            return entry["data"]
+        data = loader_fn()
+        _cache[key] = {"data": data, "ts": now}
+        return data
 
 def bust_cache(*keys):
     for k in keys:
@@ -208,8 +220,20 @@ def load_org():
 
 # ── Sheet helpers ─────────────────────────────────────────────────────────────
 
+def _sheets_read(fn, *args, **kwargs):
+    """Call a Sheets API read with up to 3 retries on 429 rate-limit errors."""
+    delay = 1.5
+    for attempt in range(3):
+        try:
+            return fn(*args, **kwargs)
+        except gspread.exceptions.APIError as e:
+            if "429" in str(e) and attempt < 2:
+                time.sleep(delay * (attempt + 1))
+                continue
+            raise
+
 def _parse_ws(ws):
-    data = ws.get_all_values()
+    data = _sheets_read(ws.get_all_values)
     if not data:
         return [], []
     return data[0], data[1:]
@@ -452,7 +476,7 @@ def get_shared_employees(lead):
                     sw = json.loads(padded[sw_idx] or "[]")
                 except Exception:
                     sw = []
-                if lead in sw and padded[0]:
+                if lead in [s.lower() for s in sw] and padded[0]:
                     rev = _to_rec(headers, row)
                     shared.append({
                         "emp": padded[0],
@@ -468,6 +492,28 @@ def _parse_notif_link(message):
     """Derive a review URL from a share notification message."""
     m = re.search(r"shared (.+?)'s review", message)
     return f"/review/{m.group(1)}" if m else ""
+
+
+# ── Error handlers ───────────────────────────────────────────────────────────
+
+@app.errorhandler(gspread.exceptions.APIError)
+def handle_sheets_error(e):
+    is_rate_limit = "429" in str(e)
+    msg = ("The server is under load right now. Please wait a few seconds and refresh."
+           if is_rate_limit else
+           "A data error occurred. Please try again.")
+    if request.path.startswith("/api/"):
+        status = 503 if is_rate_limit else 500
+        return jsonify({"ok": False, "error": msg}), status
+    flash(msg)
+    return redirect(url_for("dashboard") if "lead" in session else url_for("login"))
+
+@app.errorhandler(500)
+def handle_500(e):
+    if request.path.startswith("/api/"):
+        return jsonify({"ok": False, "error": "An unexpected error occurred. Please try again."}), 500
+    flash("Something went wrong. Please try again.")
+    return redirect(url_for("dashboard") if "lead" in session else url_for("login"))
 
 
 # ── Routes ────────────────────────────────────────────────────────────────────
@@ -871,7 +917,8 @@ def review(emp_name):
 
     if not is_owner:
         rev_check = load_review(owner_lead, emp_name) if owner_lead else None
-        if not rev_check or lead not in rev_check.get("shared_with", []):
+        shared_with_lc = [s.lower() for s in (rev_check or {}).get("shared_with", [])]
+        if not rev_check or lead not in shared_with_lc:
             flash("Access denied.")
             return redirect(url_for("dashboard"))
 
@@ -963,7 +1010,8 @@ def api_add_comment():
         is_owner = (lead == owner_lead)
         if not is_owner:
             rev_check = load_review(owner_lead, emp_name)
-            if not rev_check or lead not in rev_check.get("shared_with", []):
+            shared_with_lc = [s.lower() for s in (rev_check or {}).get("shared_with", [])]
+            if not rev_check or lead not in shared_with_lc:
                 return jsonify({"ok": False, "error": "Access denied"}), 403
         review_data = load_review(owner_lead, emp_name) or {}
         comments = review_data.get("comments", [])
@@ -1001,8 +1049,8 @@ def api_update_sharing():
         if lead != owner_lead:
             return jsonify({"ok": False, "error": "Not authorized"}), 403
         review_data = load_review(lead, emp_name) or {}
-        old_shared = set(review_data.get("shared_with", []))
-        new_shared = data.get("shared_with", [])
+        old_shared = set(s.lower() for s in review_data.get("shared_with", []))
+        new_shared  = [s.lower() for s in data.get("shared_with", [])]
         review_data["shared_with"] = new_shared
         review_data.setdefault("employee", emp_name)
         save_review(lead, emp_name, review_data)
