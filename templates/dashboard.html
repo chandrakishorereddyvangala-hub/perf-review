@@ -2,84 +2,127 @@
 {% block title %}Dashboard — NFORCE ONE{% endblock %}
 {% block content %}
 <div class="dashboard-page">
+
   <div class="page-header">
     <div>
-      <h2 class="serif">My Team</h2>
-      <p class="subtitle">{{ employees|length }} direct report{{ 's' if employees|length != 1 }}</p>
+      <h2 class="serif">Dashboard</h2>
+      <p class="subtitle">{{ lead | capitalize }}'s workspace</p>
     </div>
   </div>
 
-  <div class="employee-grid">
-    {% for emp in employees %}
-    <a href="{{ url_for('review', emp_name=emp.name) }}" class="emp-tile">
-      <div class="emp-photo-wrap">
-        {% set photo = url_for('static', filename='photos/' + emp.name + '.jpg') %}
-        <img
-          src="{{ url_for('static', filename='photos/' + emp.name + '.jpg') }}"
-          alt="{{ emp.name }}"
-          class="emp-photo"
-          onerror="this.style.display='none';this.nextElementSibling.style.display='flex';"
-        />
-        <div class="emp-initials" style="display:none">{{ emp.name[0].upper() }}</div>
-      </div>
-      <div class="emp-info">
-        <div class="emp-name">{{ emp.name | capitalize }}</div>
-        <div class="emp-role">{{ emp.info.role }}</div>
-        <div class="emp-meta">
-          <span class="status-badge status-{{ emp.status | lower | replace(' ', '-') }}">{{ emp.status }}</span>
-          {% if emp.avg_rating > 0 %}
-          <span class="avg-stars">
-            {% for i in range(1, 6) %}
-              <span class="star {% if i <= emp.avg_rating %}filled{% elif i - 0.5 <= emp.avg_rating %}half{% endif %}">★</span>
-            {% endfor %}
-            <span class="avg-num">{{ emp.avg_rating }}</span>
-          </span>
-          {% endif %}
-        </div>
-      </div>
-    </a>
-    {% endfor %}
+  <!-- Tab bar -->
+  <div class="dash-tabs">
+    <button class="dash-tab active" id="tab-btn-myteam" onclick="switchTab('myteam')">
+      My Team
+      <span class="dash-tab-count">{{ employees|length }}</span>
+    </button>
+    <button class="dash-tab" id="tab-btn-shared" onclick="switchTab('shared')">
+      Shared With Me
+      <span class="dash-tab-count {% if shared %}dash-tab-count-active{% endif %}">{{ shared|length }}</span>
+    </button>
   </div>
 
-  {% if shared %}
-  <div class="shared-section">
-    <div class="page-header" style="margin-top:2.5rem">
-      <div>
-        <h2 class="serif">Shared with Me</h2>
-        <p class="subtitle">Reviews you've been granted access to</p>
-      </div>
-    </div>
+  <!-- My Team panel -->
+  <div id="panel-myteam" class="dash-panel">
+    {% if employees %}
     <div class="employee-grid">
-      {% for item in shared %}
-      {% set emp = item.emp %}
-      {% set owner = item.owner_lead %}
-      {% set rev = item.review %}
-      <a href="{{ url_for('review', emp_name=emp) }}" class="emp-tile shared-tile">
-        <div class="shared-badge">Shared by {{ owner | capitalize }}</div>
+      {% for emp in employees %}
+      <a href="{{ url_for('review', emp_name=emp.name) }}" class="emp-tile">
         <div class="emp-photo-wrap">
           <img
-            src="{{ url_for('static', filename='photos/' + emp + '.jpg') }}"
-            alt="{{ emp }}"
+            src="{{ url_for('static', filename='photos/' + emp.name + '.jpg') }}"
+            alt="{{ emp.name }}"
             class="emp-photo"
             onerror="this.style.display='none';this.nextElementSibling.style.display='flex';"
           />
-          <div class="emp-initials" style="display:none">{{ emp[0].upper() }}</div>
+          <div class="emp-initials" style="display:none">{{ emp.name[0].upper() }}</div>
         </div>
         <div class="emp-info">
-          <div class="emp-name">{{ emp | capitalize }}</div>
-          <div class="emp-role">
-            {% for k, v in {'lahari':'Senior Developer','maheshwar':'Product Manager','anil':'QA Engineer','ravi':'Frontend Developer','deepa':'UX Designer','sneha':'Backend Developer','kiran':'DevOps Engineer','vikram':'Data Analyst','suresh':'Team Lead','pooja':'Business Analyst','ananya':'Mobile Developer','rohan':'Cloud Architect','nikhil':'Security Engineer','swati':'Full Stack Developer','amit':'ML Engineer','divya':'Scrum Master','rajesh':'Infrastructure Engineer','prakash':'Technical Writer','kavya':'Support Engineer','tarun':'Systems Analyst'}.items() %}
-              {% if k == emp %}{{ v }}{% endif %}
-            {% endfor %}
-          </div>
+          <div class="emp-name">{{ emp.name | capitalize }}</div>
+          <div class="emp-role">{{ emp.info.role }}</div>
           <div class="emp-meta">
-            <span class="status-badge status-{{ (rev.status or 'pending') | lower | replace(' ', '-') }}">{{ rev.status or 'Pending' }}</span>
+            <span class="status-badge status-{{ emp.status | lower | replace(' ', '-') }}">{{ emp.status }}</span>
+            {% if emp.avg_rating > 0 %}
+            <span class="avg-stars">
+              {% for i in range(1, 6) %}
+                <span class="star {% if i <= emp.avg_rating %}filled{% elif i - 0.5 <= emp.avg_rating %}half{% endif %}">★</span>
+              {% endfor %}
+              <span class="avg-num">{{ emp.avg_rating }}</span>
+            </span>
+            {% endif %}
           </div>
         </div>
       </a>
       {% endfor %}
     </div>
+    {% else %}
+    <div class="empty-state">
+      <p class="muted">No team members yet. Add resources via the Resources page.</p>
+    </div>
+    {% endif %}
   </div>
-  {% endif %}
+
+  <!-- Shared With Me panel -->
+  <div id="panel-shared" class="dash-panel" style="display:none">
+    {% if shared %}
+    <div class="employee-grid">
+      {% for item in shared %}
+      {% set rev = item.review %}
+      <a href="{{ url_for('review', emp_name=item.emp) }}" class="emp-tile shared-tile">
+        <div class="shared-badge">Shared by {{ item.owner_lead | capitalize }}</div>
+        <div class="shared-readonly-badge">Read Only</div>
+        <div class="emp-photo-wrap">
+          <img
+            src="{{ url_for('static', filename='photos/' + item.emp + '.jpg') }}"
+            alt="{{ item.emp }}"
+            class="emp-photo"
+            onerror="this.style.display='none';this.nextElementSibling.style.display='flex';"
+          />
+          <div class="emp-initials" style="display:none">{{ item.emp[0].upper() }}</div>
+        </div>
+        <div class="emp-info">
+          <div class="emp-name">{{ item.emp | capitalize }}</div>
+          <div class="emp-role">{{ rev.get('role', 'Employee') if rev.get is defined else 'Employee' }}</div>
+          <div class="emp-meta">
+            <span class="status-badge status-{{ (rev.status or 'pending') | lower | replace(' ', '-') }}">{{ rev.status or 'Pending' }}</span>
+            {% if item.avg_rating > 0 %}
+            <span class="avg-stars">
+              {% for i in range(1, 6) %}
+                <span class="star {% if i <= item.avg_rating %}filled{% elif i - 0.5 <= item.avg_rating %}half{% endif %}">★</span>
+              {% endfor %}
+              <span class="avg-num">{{ item.avg_rating }}</span>
+            </span>
+            {% endif %}
+          </div>
+        </div>
+      </a>
+      {% endfor %}
+    </div>
+    {% else %}
+    <div class="empty-state">
+      <p class="muted">No reviews have been shared with you yet.</p>
+      <p class="muted" style="margin-top:.4rem;font-size:.85rem;">When another lead shares a review, it will appear here.</p>
+    </div>
+    {% endif %}
+  </div>
+
 </div>
+
+<script>
+function switchTab(name) {
+  ['myteam', 'shared'].forEach(t => {
+    document.getElementById('panel-' + t).style.display  = t === name ? '' : 'none';
+    document.getElementById('tab-btn-' + t).classList.toggle('active', t === name);
+  });
+  try { sessionStorage.setItem('dashTab', name); } catch(e) {}
+}
+
+// Restore last active tab
+(function() {
+  try {
+    const saved = sessionStorage.getItem('dashTab');
+    if (saved === 'shared') switchTab('shared');
+  } catch(e) {}
+})();
+</script>
 {% endblock %}

@@ -1,0 +1,8 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(venv\\\\Scripts\\\\python.exe -c \"import openpyxl; print\\('openpyxl ok'\\)\")",
+      "Bash(venv\\\\Scripts\\\\python.exe -c \"import xlsxwriter; print\\('xlsxwriter ok'\\)\")"
+    ]
+  }
+}

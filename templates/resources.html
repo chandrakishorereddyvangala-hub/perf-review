@@ -1,0 +1,118 @@
+{% extends "base.html" %}
+{% block title %}Resources — NFORCE ONE{% endblock %}
+{% block content %}
+<div class="resources-page">
+  <div class="page-header">
+    <div>
+      <h2 class="serif">My Team Resources</h2>
+      <p class="subtitle">Manage your direct reports</p>
+    </div>
+    <a href="{{ url_for('dashboard') }}" class="back-link">&#8592; Back to Dashboard</a>
+  </div>
+
+  <!-- Current team -->
+  <div class="card">
+    <div class="card-title">Current Team ({{ employees|length }})</div>
+    {% if employees %}
+    <div class="resources-list" id="resourcesList">
+      {% for emp in employees %}
+      <div class="resource-row">
+        <div class="resource-avatar">{{ emp.name[0].upper() }}</div>
+        <div class="resource-info">
+          <div class="resource-name">{{ emp.name }}</div>
+          <div class="resource-role">{{ emp.role }}</div>
+        </div>
+        <button class="btn-remove" onclick="removeResource('{{ emp.name }}', this)">Remove</button>
+      </div>
+      {% endfor %}
+    </div>
+    {% else %}
+    <p class="muted" id="emptyMsg">No team members yet. Add someone below.</p>
+    {% endif %}
+  </div>
+
+  <!-- Add new member -->
+  <div class="card">
+    <div class="card-title">Add Team Member</div>
+    <p class="card-desc">The director will be notified when you add a new team member.</p>
+    <div class="add-resource-form">
+      <div class="field">
+        <label>Full Name</label>
+        <input type="text" id="newEmpName" placeholder="e.g. John Smith" />
+      </div>
+      <div class="field">
+        <label>Role / Job Title</label>
+        <input type="text" id="newEmpRole" placeholder="e.g. Senior Developer" />
+      </div>
+      <div>
+        <button class="btn-primary" onclick="addResource()">Add Team Member</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<script>
+function addResource() {
+  var name = document.getElementById('newEmpName').value.trim();
+  var role = document.getElementById('newEmpRole').value.trim() || 'Employee';
+  if (!name) { showGlobalToast('Name is required', true); return; }
+
+  fetch('/api/add_resource', {
+    method: 'POST',
+    headers: {'Content-Type': 'application/json'},
+    body: JSON.stringify({emp_name: name, emp_role: role})
+  })
+  .then(function(r){ return r.json(); })
+  .then(function(data){
+    if (data.ok) {
+      showGlobalToast('Team member added. Director has been notified.');
+      var list = document.getElementById('resourcesList');
+      if (!list) {
+        var empty = document.getElementById('emptyMsg');
+        if (empty) empty.remove();
+        list = document.createElement('div');
+        list.id = 'resourcesList';
+        list.className = 'resources-list';
+        document.querySelector('.card').appendChild(list);
+      }
+      var row = document.createElement('div');
+      row.className = 'resource-row';
+      var safeName = name.replace(/'/g, "\\'");
+      row.innerHTML =
+        '<div class="resource-avatar">' + name[0].toUpperCase() + '</div>' +
+        '<div class="resource-info">' +
+          '<div class="resource-name">' + name + '</div>' +
+          '<div class="resource-role">' + role + '</div>' +
+        '</div>' +
+        '<button class="btn-remove" onclick="removeResource(\'' + safeName + '\', this)">Remove</button>';
+      list.appendChild(row);
+      document.getElementById('newEmpName').value = '';
+      document.getElementById('newEmpRole').value = '';
+    } else {
+      showGlobalToast(data.error || 'Failed to add team member', true);
+    }
+  })
+  .catch(function(){ showGlobalToast('Network error', true); });
+}
+
+function removeResource(empName, btn) {
+  if (!confirm('Remove ' + empName + ' from your team?')) return;
+
+  fetch('/api/remove_resource', {
+    method: 'POST',
+    headers: {'Content-Type': 'application/json'},
+    body: JSON.stringify({emp_name: empName})
+  })
+  .then(function(r){ return r.json(); })
+  .then(function(data){
+    if (data.ok) {
+      showGlobalToast(empName + ' removed from your team');
+      btn.closest('.resource-row').remove();
+    } else {
+      showGlobalToast(data.error || 'Failed to remove', true);
+    }
+  })
+  .catch(function(){ showGlobalToast('Network error', true); });
+}
+</script>
+{% endblock %}

@@ -1,0 +1,39 @@
+{% extends "base.html" %}
+{% block title %}Notifications — NFORCE ONE{% endblock %}
+{% block content %}
+<div class="page-header">
+  <div>
+    <h2 class="serif">Notifications</h2>
+    <p class="subtitle">Your recent alerts and updates</p>
+  </div>
+  <a href="{{ url_for('dashboard') }}" class="back-link">&#8592; Back to Dashboard</a>
+</div>
+
+{% if notifications %}
+<div class="notif-list">
+  {% for n in notifications %}
+  {% set link = n.link if n.link else '' %}
+  {% set unread = n.is_read == 'false' %}
+  <a {% if link %}href="{{ link }}"{% endif %}
+     class="notif-item {% if unread %}unread{% endif %}{% if link %} notif-clickable{% endif %}"
+     {% if not link %}style="cursor:default"{% endif %}>
+    <div class="notif-dot"></div>
+    <div class="notif-content">
+      <div class="notif-message">{{ n.message }}</div>
+      <div class="notif-time">
+        {{ n.timestamp }}
+        {% if link %}<span class="notif-view-hint">View Review →</span>{% endif %}
+      </div>
+    </div>
+    {% if link %}
+    <div class="notif-arrow">›</div>
+    {% endif %}
+  </a>
+  {% endfor %}
+</div>
+{% else %}
+<div class="notif-empty">
+  <p>No notifications yet.</p>
+</div>
+{% endif %}
+{% endblock %}

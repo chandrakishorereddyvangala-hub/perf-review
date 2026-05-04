@@ -1,0 +1,232 @@
+{% extends "base.html" %}
+{% block title %}Appraisal Rankings — NFORCE ONE{% endblock %}
+{% block content %}
+<div class="rankings-page">
+
+  <!-- Header -->
+  <div class="page-header">
+    <div>
+      <a href="{{ url_for('dashboard') }}" class="back-link">← Back to Dashboard</a>
+      <h2 class="serif">Appraisal Rankings</h2>
+      <p class="subtitle">{{ total }} resources across {{ leads|length }} leads</p>
+    </div>
+    <div style="display:flex;align-items:center;gap:.75rem;">
+      <a href="{{ url_for('export_rankings') }}" class="btn-export" id="exportBtn" onclick="exportStart()">
+        <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
+        <span id="exportLabel">Export to Excel</span>
+      </a>
+      <div class="director-badge"><span>◈</span> Director</div>
+    </div>
+  </div>
+
+  <!-- Stat cards -->
+  <div class="rnk-stats">
+    <div class="rnk-stat-card">
+      <div class="rnk-stat-num">{{ total }}</div>
+      <div class="rnk-stat-lbl">Total Resources</div>
+    </div>
+    <div class="rnk-stat-card">
+      <div class="rnk-stat-num">{{ rated_count }}</div>
+      <div class="rnk-stat-lbl">Rated</div>
+    </div>
+    <div class="rnk-stat-card">
+      <div class="rnk-stat-num">{{ company_avg }}</div>
+      <div class="rnk-stat-lbl">Company Avg</div>
+    </div>
+    <div class="rnk-stat-card rnk-stat-gold">
+      <div class="rnk-stat-num">{{ tier_counts.top }}</div>
+      <div class="rnk-stat-lbl">Top Performers</div>
+    </div>
+    <div class="rnk-stat-card rnk-stat-grey">
+      <div class="rnk-stat-num">{{ tier_counts.unrated }}</div>
+      <div class="rnk-stat-lbl">Not Yet Rated</div>
+    </div>
+  </div>
+
+  <!-- Charts row -->
+  <div class="rnk-charts">
+
+    <!-- Donut: tier distribution -->
+    <div class="card rnk-chart-card">
+      <div class="card-title">Distribution by Tier</div>
+      <div style="position:relative;height:200px;">
+        <canvas id="donutChart"></canvas>
+      </div>
+      <div class="rnk-legend">
+        <div class="rnk-legend-row"><span class="rnk-dot" style="background:#f59e0b"></span><span>Top Performer (≥ 4.5) — <strong>{{ tier_counts.top }}</strong></span></div>
+        <div class="rnk-legend-row"><span class="rnk-dot" style="background:#16a34a"></span><span>High (≥ 3.5) — <strong>{{ tier_counts.high }}</strong></span></div>
+        <div class="rnk-legend-row"><span class="rnk-dot" style="background:#3b82f6"></span><span>Standard (≥ 2.5) — <strong>{{ tier_counts.standard }}</strong></span></div>
+        <div class="rnk-legend-row"><span class="rnk-dot" style="background:#ef4444"></span><span>Needs Review (< 2.5) — <strong>{{ tier_counts.review }}</strong></span></div>
+        <div class="rnk-legend-row"><span class="rnk-dot" style="background:#9ca3af"></span><span>Not Rated — <strong>{{ tier_counts.unrated }}</strong></span></div>
+      </div>
+    </div>
+
+    <!-- Horizontal bar: all rated employees -->
+    <div class="card rnk-chart-card rnk-chart-wide">
+      <div class="card-title">Rating Comparison — All Rated Employees</div>
+      <div class="rnk-bar-scroll">
+        <canvas id="barChart"></canvas>
+      </div>
+    </div>
+
+  </div>
+
+  <!-- Filters -->
+  <div class="card rnk-filters">
+    <select id="fLead" onchange="applyFilters()" class="rnk-select">
+      <option value="">All Leads</option>
+      {% for lead in leads %}
+      <option value="{{ lead.lower() }}">{{ lead | capitalize }}</option>
+      {% endfor %}
+    </select>
+    <select id="fTier" onchange="applyFilters()" class="rnk-select">
+      <option value="">All Tiers</option>
+      <option value="top">Top Performer</option>
+      <option value="high">High</option>
+      <option value="standard">Standard</option>
+      <option value="review">Needs Review</option>
+      <option value="unrated">Not Rated</option>
+    </select>
+    <input id="fName" oninput="applyFilters()" placeholder="Search by name…" class="rnk-search" />
+    <span id="rnkCount" class="rnk-filter-count"></span>
+  </div>
+
+  <!-- Rankings table -->
+  <div class="card" style="padding:0;overflow:hidden;">
+    <table class="rnk-table" id="rnkTable">
+      <thead>
+        <tr>
+          <th style="width:48px;">#</th>
+          <th>Employee</th>
+          <th>Lead</th>
+          <th>Role</th>
+          <th style="width:90px;">Avg Rating</th>
+          <th>Rating</th>
+          <th style="width:130px;">Tier</th>
+          <th style="width:130px;">Appraisal</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for emp in employees %}
+        <tr data-lead="{{ emp.lead.lower() }}" data-tier="{{ emp.tier }}" data-name="{{ emp.name.lower() }}">
+          <td class="rnk-rank-num">{{ emp.rank if emp.rank else '—' }}</td>
+          <td>
+            <div class="rnk-emp-cell">
+              <div class="rnk-avatar rnk-avatar-{{ emp.tier }}">{{ emp.name[0].upper() }}</div>
+              <div>
+                <div class="rnk-emp-name">{{ emp.name }}</div>
+                <div class="rnk-emp-status">{{ emp.status }}</div>
+              </div>
+            </div>
+          </td>
+          <td class="rnk-lead-cell">{{ emp.lead | capitalize }}</td>
+          <td class="rnk-role-cell">{{ emp.role }}</td>
+          <td class="rnk-avg-cell">
+            {% if emp.avg_rating > 0 %}
+            <span class="rnk-avg-num">{{ "%.1f"|format(emp.avg_rating) }}</span><span class="rnk-avg-denom">/5</span>
+            {% else %}
+            <span class="rnk-na">—</span>
+            {% endif %}
+          </td>
+          <td>
+            <div class="rnk-bar-track">
+              <div class="rnk-bar-fill rnk-bar-{{ emp.tier }}" style="width:{{ (emp.avg_rating / 5 * 100) | int }}%"></div>
+            </div>
+          </td>
+          <td><span class="rnk-tier-badge rnk-tier-{{ emp.tier }}">{{ emp.tier_label }}</span></td>
+          <td><span class="rnk-appraisal-badge rnk-appraisal-{{ emp.tier }}">{{ emp.appraisal }}</span></td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+
+</div>
+
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4/dist/chart.umd.min.js"></script>
+<script>
+// ── Donut chart ──────────────────────────────────────────
+new Chart(document.getElementById('donutChart'), {
+  type: 'doughnut',
+  data: {
+    labels: ['Top Performer','High','Standard','Needs Review','Not Rated'],
+    datasets: [{
+      data: [{{ tier_counts.top }}, {{ tier_counts.high }}, {{ tier_counts.standard }}, {{ tier_counts.review }}, {{ tier_counts.unrated }}],
+      backgroundColor: ['#f59e0b','#16a34a','#3b82f6','#ef4444','#9ca3af'],
+      borderWidth: 2, borderColor: '#fff',
+    }]
+  },
+  options: {
+    responsive: true, maintainAspectRatio: false,
+    plugins: {
+      legend: { display: false },
+      tooltip: { callbacks: { label: ctx => ` ${ctx.label}: ${ctx.parsed}` } }
+    },
+    cutout: '62%',
+  }
+});
+
+// ── Bar chart (all rated employees) ─────────────────────
+const empData = [
+  {% for emp in employees if emp.avg_rating > 0 %}
+  { name: {{ emp.name | tojson }}, avg: {{ emp.avg_rating }}, tier: {{ emp.tier | tojson }} },
+  {% endfor %}
+];
+
+const tierColor = { top:'#f59e0b', high:'#16a34a', standard:'#3b82f6', review:'#ef4444' };
+
+const barCanvas = document.getElementById('barChart');
+barCanvas.height = Math.max(200, empData.length * 22 + 40);
+
+new Chart(barCanvas, {
+  type: 'bar',
+  data: {
+    labels: empData.map(e => e.name),
+    datasets: [{
+      data: empData.map(e => e.avg),
+      backgroundColor: empData.map(e => tierColor[e.tier] || '#9ca3af'),
+      borderRadius: 3,
+      barThickness: 14,
+    }]
+  },
+  options: {
+    indexAxis: 'y',
+    responsive: false,
+    plugins: { legend: { display: false } },
+    scales: {
+      x: { min: 0, max: 5, ticks: { stepSize: 1 }, grid: { color: '#f0f0f0' } },
+      y: { ticks: { font: { size: 11 }, color: '#6b7280' }, grid: { display: false } }
+    }
+  }
+});
+
+// ── Filter logic ─────────────────────────────────────────
+function applyFilters() {
+  const lead = document.getElementById('fLead').value;
+  const tier = document.getElementById('fTier').value;
+  const name = document.getElementById('fName').value.toLowerCase().trim();
+  let visible = 0;
+  document.querySelectorAll('#rnkTable tbody tr').forEach(row => {
+    const show =
+      (!lead || row.dataset.lead === lead) &&
+      (!tier || row.dataset.tier === tier) &&
+      (!name || row.dataset.name.includes(name));
+    row.style.display = show ? '' : 'none';
+    if (show) visible++;
+  });
+  document.getElementById('rnkCount').textContent = visible + ' shown';
+}
+applyFilters();
+
+function exportStart() {
+  const btn = document.getElementById('exportBtn');
+  const lbl = document.getElementById('exportLabel');
+  btn.classList.add('btn-export-loading');
+  lbl.textContent = 'Preparing…';
+  setTimeout(() => {
+    btn.classList.remove('btn-export-loading');
+    lbl.textContent = 'Export to Excel';
+  }, 4000);
+}
+</script>
+{% endblock %}

@@ -7,8 +7,13 @@
       <h2 class="serif">Team Overview</h2>
       <p class="subtitle">{{ lead_tiles|length }} leads · Director view</p>
     </div>
-    <div class="director-badge">
-      <span class="dir-icon">◈</span> Director
+    <div style="display:flex;align-items:center;gap:.75rem;">
+      <a href="{{ url_for('director_rankings') }}" class="btn-primary" style="font-size:.88rem;padding:.5rem 1.1rem;">
+        ★ Appraisal Rankings
+      </a>
+      <div class="director-badge">
+        <span class="dir-icon">◈</span> Director
+      </div>
     </div>
   </div>
 
